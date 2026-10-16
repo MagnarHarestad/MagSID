@@ -6,7 +6,7 @@
 <title>MagSID - a C64 music tracker for Windows</title>
 <meta name="description" content="MagSID - a Windows tracker for Commodore 64 music, with a tiny SID player that plays exactly what you hear in the editor.">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <header><div class="wrap"><img src="favicon.png" alt=""><a class="brand" href="./">MagSID</a>
@@ -22,6 +22,11 @@
     <div class="download">
       <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/latest">Download for Windows</a>
       <small>Free and open source · Windows 10/11, 64-bit · needs the .NET 8 Desktop Runtime</small>
+      <p class="also"><span class="tag">Preview 0.2</span> Also for
+        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.2/MagSID-0.2-macos-arm64.zip">macOS · Apple Silicon</a>
+        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.2/MagSID-0.2-macos-x64.zip">macOS · Intel</a>
+        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.2/MagSID-0.2-linux-x64.tar.gz">Linux · x64</a>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/tag/xplatform-v0.2">release notes</a></p>
     </div>
   </section>
 
@@ -119,6 +124,7 @@
     <li><b>Menu → About</b> lists every key and control.</li>
   </ol>
   <div class="note">The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
+  <div class="note"><b>macOS and Linux</b> get the <a href="https://github.com/MagnarHarestad/MagSID-Xplatform">cross-platform preview</a>, with .NET built in - nothing else to install. On a Mac, unzip and move MagSID to Applications; it is not notarised yet, so the first time right-click it and choose <b>Open</b>. On Linux, unpack and run <code>./MagSID</code>. The preview does not have Import MIDI, Optimize or a MIDI keyboard yet.</div>
 
   <section class="legal">
     <h2 id="license">License and credits</h2>
