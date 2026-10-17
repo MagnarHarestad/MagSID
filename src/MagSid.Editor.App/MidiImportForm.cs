@@ -231,7 +231,7 @@ public sealed class MidiImportForm : Form
     /// boxes.</summary>
     private void ChooseDefaults()
     {
-        int Index(MidiSource? s) => s is null ? 0 : _sources.ToList().IndexOf(s) + 1;
+        int Index(MidiSource? s) => _midi.IndexOf(s) + 1;
 
         var suggested = MidiImporter.SuggestVoices(_midi);
         for (int v = 0; v < Song.ChannelCount; v++)
