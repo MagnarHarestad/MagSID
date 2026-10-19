@@ -26,7 +26,8 @@
         <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.3/MagSID-0.3-macos-arm64.zip">macOS · Apple Silicon</a>
         <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.3/MagSID-0.3-macos-x64.zip">macOS · Intel</a>
         <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.3/MagSID-0.3-linux-x64.tar.gz">Linux · x64</a>
-        <a class="plain" href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/tag/xplatform-v0.3">release notes</a></p>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/tag/xplatform-v0.3">release notes</a>
+        <a class="plain" href="#mac">opening it on a Mac</a></p>
     </div>
   </section>
 
@@ -124,7 +125,17 @@
     <li><b>Menu → About</b> lists every key and control.</li>
   </ol>
   <div class="note">The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
-  <div class="note"><b>macOS and Linux</b> get the <a href="https://github.com/MagnarHarestad/MagSID-Xplatform">cross-platform preview</a>, with .NET built in - nothing else to install. On a Mac, unzip and move MagSID to Applications; it is not notarised yet, so the first time right-click it and choose <b>Open</b>. On Linux, unpack and run <code>./MagSID</code>. It has Import MIDI, Optimize and MIDI keyboards too.</div>
+  <div class="note"><b>macOS and Linux</b> get the <a href="https://github.com/MagnarHarestad/MagSID-Xplatform">cross-platform preview</a>, with .NET built in - nothing else to install. It has Import MIDI, Optimize and MIDI keyboards too. On Linux, unpack it and run <code>./MagSID</code>.</div>
+  <div class="note mac" id="mac">
+    <p><b>On a Mac</b>, unzip the download and move MagSID to Applications. The app is not notarised by Apple yet, so macOS stops it the first time it is opened:</p>
+    <ul>
+      <li><b>macOS 15 Sequoia and later:</b> try to open MagSID once and close the warning. Then go to <b>System Settings → Privacy &amp; Security</b>, scroll down to the line about MagSID and choose <b>Open Anyway</b>.</li>
+      <li><b>macOS 14 and earlier:</b> right-click MagSID, choose <b>Open</b>, then <b>Open</b> again.</li>
+      <li>If macOS says MagSID <i>is damaged and can't be opened</i>, it is the mark macOS puts on everything downloaded from the internet, not the app. Remove it in Terminal:</li>
+    </ul>
+    <pre><code>xattr -dr com.apple.quarantine /Applications/MagSID.app</code></pre>
+    <p class="small">That tells macOS to stop checking this one app, so only do it for software you trust. Either way it is needed once, not every time.</p>
+  </div>
 
   <section class="story">
     <h2 id="story">The story behind MagSID</h2>
