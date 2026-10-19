@@ -60,3 +60,6 @@ footer a { color:var(--dim); }
 .files .midi td:nth-child(2), .files .midi td:nth-child(3) { color:var(--dim); }
 .files .more { color:var(--dim); font-size:13.5px; margin-top:10px; }
 @media (max-width:720px) { .files { grid-template-columns:1fr; } .files .midi td:nth-child(2) { display:none; } }
+.story h3 { color:#fff; font-size:17px; margin:28px 0 4px; }
+.story p { max-width:760px; }
+.story p:not(.lead) { color:#c9d0dd; }

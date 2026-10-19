@@ -6,11 +6,11 @@
 <title>MagSID - a C64 music tracker for Windows</title>
 <meta name="description" content="MagSID - a Windows tracker for Commodore 64 music, with a tiny SID player that plays exactly what you hear in the editor.">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <header><div class="wrap"><img src="favicon.png" alt=""><a class="brand" href="./">MagSID</a>
-  <nav><a href="#features">Features</a><a href="#songs">Songs</a><a href="#start">Get started</a><a href="#license">License</a><a href="https://github.com/MagnarHarestad/MagSID">Source</a></nav></div></header>
+  <nav><a href="#features">Features</a><a href="#songs">Songs</a><a href="#start">Get started</a><a href="#story">Story</a><a href="#license">License</a><a href="https://github.com/MagnarHarestad/MagSID">Source</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero">
@@ -125,6 +125,75 @@
   </ol>
   <div class="note">The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
   <div class="note"><b>macOS and Linux</b> get the <a href="https://github.com/MagnarHarestad/MagSID-Xplatform">cross-platform preview</a>, with .NET built in - nothing else to install. On a Mac, unzip and move MagSID to Applications; it is not notarised yet, so the first time right-click it and choose <b>Open</b>. On Linux, unpack and run <code>./MagSID</code>. It has Import MIDI, Optimize and MIDI keyboards too.</div>
+
+  <section class="story">
+    <h2 id="story">The story behind MagSID</h2>
+    <p class="lead">From a Turbo Assembler player in 1990 to the editor released at Mysdata 2026.</p>
+
+    <h3>Where it started</h3>
+    <p>I started developing MagSID back in 1990 in Turbo Assembler. I quickly found out that I needed an editor for it,
+      so I started on a simple editor in BASIC that mainly manipulated the music player code in memory.</p>
+    <p>Years passed, and I took a long break from the C64 until I returned in 2010. By then everyone told me GoatTracker
+      was the standard for composing music for demos, so I didn't take MagSID any further for a while. But I soon learned
+      that when coders really want to break the limits of the C64, the music often has to be tailor-made for specific
+      demo parts. This became very obvious when we in Censor Design were working on the demo <i>Serpent</i> in 2014. That
+      was the first time I revisited my old MagSID code, and I decided to create a new small music player for demo parts
+      and games that needed either a CPU-efficient player or a player that fits in very little memory.</p>
+
+    <h3>Tiny songs</h3>
+    <p>Around 2018-2019 I got more and more requests to make music for very tight memory spaces. I focused on improving
+      the MagSID player to use as small a memory footprint as possible, and released songs for many 4 KB games and intros
+      around that time. I have also made special versions of MagSID that support more complex sound-effect features in
+      games made by Megastyle.</p>
+    <p>Over the years I moved between several assemblers - Turbo Assembler, Kick Assembler - but finally settled on the
+      improved version of C6510 released by Krikkit / Censor Design, originally made by CRT.</p>
+
+    <h3>Wanting something more visual</h3>
+    <p>I kept working in the assembler sources and making it easier to edit my songs directly in them, but in the end I
+      found it very limiting. One of my goals had long been a more visual way of making music, like I'm used to from
+      modern DAWs such as Cubase, Cakewalk, Logic Pro and Ableton - with instruments that look and work more like
+      Omnisphere and the Native Instruments Komplete VSTs.</p>
+    <p>I was also thinking of Multistyle Labs' famous C64 songs, with their great instrumentation and sounds. I was never
+      that technical myself when it came to understanding how many of those sounds were made, so I started to imagine a
+      more visual approach, where you could see the pulse width change rather than writing the automation as hex values
+      in a pulse table, as in GoatTracker.</p>
+    <p>That idea took shape, and during and after the pandemic, around 2022-2023, I worked on a C#/.NET WinForms editor
+      for MagSID. But I found it very hard to find the time to develop it the way I wanted, and slowly the project died.</p>
+
+    <h3>A fresh start</h3>
+    <p>At the start of August 2026, Slaygon / Censor Design posted a preview of his new editor, SIDBase. Around the same
+      time Bob kept nagging me to try Claude Code, and I just felt I had to try to make something myself. My old WinForms
+      experiment wasn't working the way I wanted, and I was still mostly writing songs in the assembler sources whenever
+      people asked for new MagSID tunes.</p>
+    <p>I was very happy with my MagSID player code in assembler, so what I really needed was an editor. I started from
+      scratch, with my old ideas in mind, and built it together with Claude Code.</p>
+
+    <h3>Mysdata and the release</h3>
+    <p>By the beginning of September I had a new editor that felt stable and worked quite well. When I told the Mysdata
+      organisers about it, we decided that one of the talks at Mysdata would be about the MagSID editor. At that point I
+      was still mainly making an editor for my own use, and just playing around with it. But after the talk people asked
+      me to release it, so I decided on the spot to do that, as an outside-party release.</p>
+
+    <h3>Thanks to Slaygon and SIDBase</h3>
+    <p>It wasn't finished, and it was also clearly inspired by many of the ideas Slaygon had worked on for SIDBase. I
+      never intentionally copied Slaygon's designs - my own work was inspired by Cubase and VSTs in particular. But we
+      both used AI in our development, and we come from the same background of working with DAWs, so looking back at the
+      MagSID editor there are many things that are very similar, even though I never intended them to be. I vibe-coded
+      my editor the way I wanted it to work, as the workflow I needed to compose in.</p>
+    <p>With that said, I want to give a big thank you to Slaygon for ideas and inspiration, and I also want to promote his
+      editor - it is far more complex than MagSID. The goal of MagSID was always small-footprint music, SFX-driven games,
+      and small rasterline-friendly players for specific demo parts. It was never meant to be a full-blown player and
+      editor with all the advanced automation and instrumentation of GoatTracker and similar editors.</p>
+
+    <h3>What's next</h3>
+    <p>Since the release, MagSID has received a lot of new requests, such as MIDI song import and sound banks. I have also
+      started on a Digi-2-SID feature, similar to using noise plus ring modulation and sync for speech synthesis in
+      1x-speed songs. Not everything is done yet - maybe I'll aim to finish things off in future releases - but as of
+      now I am quite happy with how MagSID turned out.</p>
+    <p>I am sorry if this release of MagSID upset anyone. My intention was always the opposite when, after my talk at
+      Mysdata, I settled on a public release: sharing is caring, and I hope MagSID can be a useful, working tool for
+      others who want to make small-footprint songs for future 4 KB productions.</p>
+  </section>
 
   <section class="legal">
     <h2 id="license">License and credits</h2>
