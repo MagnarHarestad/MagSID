@@ -10,7 +10,7 @@
 </head>
 <body>
 <header><div class="wrap"><img src="favicon.png" alt=""><a class="brand" href="./">MagSID</a>
-  <nav><a href="#features">Features</a><a href="#songs">Songs</a><a href="#start">Get started</a><a href="#story">Story</a><a href="#license">License</a><a href="https://github.com/MagnarHarestad/MagSID">Source</a></nav></div></header>
+  <nav><a href="#features">Features</a><a href="#songs">Songs</a><a href="#start">Get started</a><a href="#tutorials">Tutorials</a><a href="#story">Story</a><a href="#license">License</a><a href="https://github.com/MagnarHarestad/MagSID">Source</a></nav></div></header>
 
 <main class="wrap">
   <section class="hero">
@@ -137,6 +137,19 @@
     <p class="small">That tells macOS to stop checking this one app, so only do it for software you trust. Either way it is needed once, not every time.</p>
   </div>
 
+  <h2 id="tutorials">Video tutorials</h2>
+  <p class="lead">Short videos on making C64 music with MagSID, one topic each.</p>
+  <div class="videos">
+    <figure class="video">
+      <a class="player" href="https://youtu.be/6mHSROFWHGw" data-video="6mHSROFWHGw" aria-label="Play 1. Getting started">
+        <img src="https://i.ytimg.com/vi/6mHSROFWHGw/hqdefault.jpg" alt="" loading="lazy" width="480" height="360">
+        <span class="play" aria-hidden="true"></span>
+        <span class="length">5:23</span>
+      </a>
+      <figcaption><b>1. Getting started</b>Getting started with MagSID Editor for creating Commodore 64 music.</figcaption>
+    </figure>
+  </div>
+
   <section class="story">
     <h2 id="story">The story behind MagSID</h2>
     <p class="lead">From a Turbo Assembler player in 1990 to the editor released at Mysdata 2026.</p>
@@ -220,6 +233,18 @@
 
 <footer><div class="wrap"><span>© 2026 Magnar Harestad · Censor Design</span><a href="https://github.com/MagnarHarestad/MagSID">Source on GitHub</a><a href="https://github.com/MagnarHarestad/MagSID/releases">Releases</a><a href="https://github.com/MagnarHarestad/MagSID/issues">Report a problem</a></div></footer>
 <script>
+// A tutorial's player is only loaded when it is clicked: until then the page asks YouTube for
+// nothing but the thumbnail. Without scripts the link opens the video on YouTube.
+document.querySelectorAll('.video .player').forEach(link => link.addEventListener('click', event => {
+  event.preventDefault();
+  const frame = document.createElement('iframe');
+  frame.src = 'https://www.youtube-nocookie.com/embed/' + link.dataset.video + '?autoplay=1&rel=0';
+  frame.title = link.getAttribute('aria-label').replace(/^Play /, '');
+  frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+  frame.allowFullscreen = true;
+  link.replaceWith(frame);
+}));
+
 // The version and release date under the logo follow the latest release; v1.63 and its date stand
 // until GitHub answers, or if it does not.
 fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
