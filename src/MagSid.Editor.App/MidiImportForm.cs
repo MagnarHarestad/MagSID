@@ -414,16 +414,15 @@ public sealed class MidiImportForm : Form
         {
             Filter = "MagSID instruments (*.json)|*.json|All files (*.*)|*.*",
             Title = $"Instrument for voice {voice + 1}",
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.MidiInstrument),
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            dialog.InitialDirectory = remembered;
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
         try
         {
             _instrument[voice] = InstrumentFile.Read(File.ReadAllText(dialog.FileName));
-            EditorSettings.InstrumentDirectory = Path.GetDirectoryName(dialog.FileName) ?? "";
+            EditorSettings.RememberFolder(DialogFolder.MidiInstrument, dialog.FileName);
             Recalculate(sourcesChanged: false);
         }
         catch (Exception ex) when (ex is InstrumentFileException or IOException or UnauthorizedAccessException)

@@ -276,11 +276,17 @@ public sealed class DigiToSidOscForm : Form
 
     private async Task LoadWavAsync()
     {
-        using var dialog = new OpenFileDialog { Filter = "WAV files (*.wav)|*.wav" };
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "WAV files (*.wav)|*.wav",
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.DigiWav),
+        };
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
+
+        EditorSettings.RememberFolder(DialogFolder.DigiWav, dialog.FileName);
 
         _fileLabel.Text = Path.GetFileName(dialog.FileName);
         var (samples, sampleRate) = ReadWav(dialog.FileName);

@@ -11,6 +11,43 @@ namespace MagSid.Editor.App;
 /// treated as defaults rather than surfaced, since a lost UI preference is not worth interrupting
 /// startup over.
 /// </summary>
+/// <summary>
+/// The file dialogs that each remember the folder they were last used in - each its own, so
+/// opening a demo song and then saving an instrument does not offer the song's folder for the
+/// instrument. The names are the keys in settings.json's "Folders".
+/// </summary>
+public enum DialogFolder
+{
+    /// <summary>Menu → Open: a song.</summary>
+    Open,
+
+    /// <summary>Menu → Save As: a song.</summary>
+    SaveAs,
+
+    ImportMidi,
+
+    ImportSid,
+
+    /// <summary>Export to .sid.</summary>
+    ExportSid,
+
+    /// <summary>Load and Play .sid - the player's own.</summary>
+    PlaySid,
+
+    LoadInstrument,
+
+    SaveInstrument,
+
+    /// <summary>An instrument picked for a voice in Import MIDI.</summary>
+    MidiInstrument,
+
+    /// <summary>Audio written from the SID player.</summary>
+    ExportAudio,
+
+    /// <summary>A .wav opened in Digi to SID-osc.</summary>
+    DigiWav,
+}
+
 public static class EditorSettings
 {
     private static readonly string FilePath = Path.Combine(
@@ -26,10 +63,7 @@ public static class EditorSettings
     private static bool _compactLoops;
     private static string _sidAuthor = string.Empty;
     private static int _sidLoadAddress = MagSid.Core.SidLoadAddress.Default;
-    private static string _sidOpenDirectory = string.Empty;
-    private static string _audioExportDirectory = string.Empty;
-    private static string _instrumentDirectory = string.Empty;
-    private static string _midiImportDirectory = string.Empty;
+    private static readonly Dictionary<DialogFolder, string> _folders = [];
     private static string _midiDevice = string.Empty;
     private static string _midiKnobBindings = string.Empty;
     private static bool _loaded;
@@ -135,38 +169,32 @@ public static class EditorSettings
         }
     }
 
-    /// <summary>Where a .sid was last opened from, for the player's own file dialog.</summary>
-    public static string SidOpenDirectory
-    {
-        get => ExistingDirectory(ref _sidOpenDirectory);
-        set => SetDirectory(ref _sidOpenDirectory, value);
-    }
-
     /// <summary>
-    /// Where audio was last written, kept apart from <see cref="SidOpenDirectory"/> on purpose.
-    ///
-    /// A save dialog with no directory of its own inherits whichever one the process used last, so
-    /// exporting after opening a tune offered to write the audio straight back into the folder the
-    /// tunes live in. That is how a three-megabyte render ended up committed to this repository.
+    /// The folder <paramref name="dialog"/> was last used in; empty when it has not been, or the
+    /// folder is gone. Each dialog has its own: a save dialog with no folder of its own inherits
+    /// whichever one the process used last, which is how exporting audio once offered to write it
+    /// into the folder the tunes live in, and a three-megabyte render ended up in this repository.
     /// </summary>
-    public static string AudioExportDirectory
+    public static string FolderFor(DialogFolder dialog)
     {
-        get => ExistingDirectory(ref _audioExportDirectory);
-        set => SetDirectory(ref _audioExportDirectory, value);
+        EnsureLoaded();
+        return _folders.TryGetValue(dialog, out string? folder) && folder.Length > 0 && Directory.Exists(folder)
+            ? folder
+            : string.Empty;
     }
 
-    /// <summary>Where an instrument file was last loaded or saved.</summary>
-    public static string InstrumentDirectory
+    /// <summary>Remembers the folder of <paramref name="file"/> - a file the dialog was just used
+    /// on - for <paramref name="dialog"/>.</summary>
+    public static void RememberFolder(DialogFolder dialog, string? file)
     {
-        get => ExistingDirectory(ref _instrumentDirectory);
-        set => SetDirectory(ref _instrumentDirectory, value);
-    }
+        EnsureLoaded();
+        if (Path.GetDirectoryName(file?.Trim() ?? "") is not { Length: > 0 } folder)
+            return;
+        if (_folders.TryGetValue(dialog, out string? was) && was == folder)
+            return;
 
-    /// <summary>Where a MIDI file was last imported from.</summary>
-    public static string MidiImportDirectory
-    {
-        get => ExistingDirectory(ref _midiImportDirectory);
-        set => SetDirectory(ref _midiImportDirectory, value);
+        _folders[dialog] = folder;
+        Save();
     }
 
     /// <summary>The MIDI input last used, by name rather than index - a device's number moves when
@@ -198,25 +226,6 @@ public static class EditorSettings
         }
     }
 
-    /// <summary>Empty for a folder that has since been deleted or moved - a dialog pointed at one
-    /// that no longer exists opens somewhere arbitrary rather than where it was told.</summary>
-    private static string ExistingDirectory(ref string field)
-    {
-        EnsureLoaded();
-        return field.Length > 0 && Directory.Exists(field) ? field : string.Empty;
-    }
-
-    private static void SetDirectory(ref string field, string? value)
-    {
-        EnsureLoaded();
-        string trimmed = value?.Trim() ?? string.Empty;
-        if (field == trimmed)
-            return;
-
-        field = trimmed;
-        Save();
-    }
-
     private static void EnsureLoaded()
     {
         if (_loaded)
@@ -237,10 +246,18 @@ public static class EditorSettings
                 if (stored.SidLoadAddress is > 0)
                     _sidLoadAddress = stored.SidLoadAddress.Value;
 
-                _sidOpenDirectory = stored.SidOpenDirectory ?? string.Empty;
-                _audioExportDirectory = stored.AudioExportDirectory ?? string.Empty;
-                _instrumentDirectory = stored.InstrumentDirectory ?? string.Empty;
-                _midiImportDirectory = stored.MidiImportDirectory ?? string.Empty;
+                foreach (var (name, folder) in stored.Folders ?? [])
+                {
+                    if (Enum.TryParse(name, out DialogFolder dialog) && !string.IsNullOrWhiteSpace(folder))
+                        _folders[dialog] = folder;
+                }
+
+                // Settings from before each dialog had its own folder: the folder dialogs shared
+                // then is where each of them starts now.
+                Inherit(stored.SidOpenDirectory, DialogFolder.ImportSid, DialogFolder.PlaySid);
+                Inherit(stored.InstrumentDirectory, DialogFolder.LoadInstrument, DialogFolder.SaveInstrument, DialogFolder.MidiInstrument);
+                Inherit(stored.MidiImportDirectory, DialogFolder.ImportMidi);
+                Inherit(stored.AudioExportDirectory, DialogFolder.ExportAudio);
                 _midiDevice = stored.MidiDevice ?? string.Empty;
                 _midiKnobBindings = stored.MidiKnobBindings ?? string.Empty;
             }
@@ -249,6 +266,14 @@ public static class EditorSettings
         {
             // Corrupt or unreadable settings file - fall back to defaults rather than block startup.
         }
+    }
+
+    private static void Inherit(string? folder, params DialogFolder[] dialogs)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+        foreach (var dialog in dialogs)
+            _folders.TryAdd(dialog, folder);
     }
 
     private static void Save()
@@ -263,10 +288,7 @@ public static class EditorSettings
                 CompactLoops = _compactLoops,
                 SidAuthor = _sidAuthor,
                 SidLoadAddress = _sidLoadAddress,
-                SidOpenDirectory = _sidOpenDirectory,
-                AudioExportDirectory = _audioExportDirectory,
-                InstrumentDirectory = _instrumentDirectory,
-                MidiImportDirectory = _midiImportDirectory,
+                Folders = _folders.ToDictionary(f => f.Key.ToString(), f => f.Value),
                 MidiDevice = _midiDevice,
                 MidiKnobBindings = _midiKnobBindings,
             }));
@@ -284,9 +306,16 @@ public static class EditorSettings
         public bool CompactLoops { get; set; }
         public string? SidAuthor { get; set; }
         public int? SidLoadAddress { get; set; }
+        public Dictionary<string, string>? Folders { get; set; }
+
+        // Read from settings written before each dialog had a folder of its own; never written.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? SidOpenDirectory { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? AudioExportDirectory { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? InstrumentDirectory { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? MidiImportDirectory { get; set; }
         public string? MidiDevice { get; set; }
         public string? MidiKnobBindings { get; set; }

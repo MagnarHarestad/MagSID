@@ -1910,10 +1910,15 @@ public sealed class MainForm : Form
         if (!ConfirmDiscardIfDirty())
             return;
 
-        using var dialog = new OpenFileDialog { Filter = "Patterns.s files (*.s)|*.s|All files (*.*)|*.*" };
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "Patterns.s files (*.s)|*.s|All files (*.*)|*.*",
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.Open),
+        };
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
+        EditorSettings.RememberFolder(DialogFolder.Open, dialog.FileName);
         try
         {
             StopSongForSwap();
@@ -1937,12 +1942,11 @@ public sealed class MainForm : Form
             Filter = "MIDI files (*.mid;*.midi)|*.mid;*.midi|All files (*.*)|*.*",
             Title = "Import MIDI",
         };
-        if (EditorSettings.MidiImportDirectory is { Length: > 0 } remembered)
-            open.InitialDirectory = remembered;
+        open.InitialDirectory = EditorSettings.FolderFor(DialogFolder.ImportMidi);
         if (open.ShowDialog(this) != DialogResult.OK)
             return;
 
-        EditorSettings.MidiImportDirectory = Path.GetDirectoryName(open.FileName) ?? "";
+        EditorSettings.RememberFolder(DialogFolder.ImportMidi, open.FileName);
 
         MidiSong midi;
         try
@@ -1981,14 +1985,12 @@ public sealed class MainForm : Form
         {
             Filter = "SID tunes (*.sid)|*.sid|All files (*.*)|*.*",
             Title = "Import SID",
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.ImportSid),
         };
-        if (EditorSettings.SidOpenDirectory is { Length: > 0 } remembered)
-            open.InitialDirectory = remembered;
         if (open.ShowDialog(this) != DialogResult.OK)
             return;
 
-        if (Path.GetDirectoryName(open.FileName) is { Length: > 0 } opened)
-            EditorSettings.SidOpenDirectory = opened;
+        EditorSettings.RememberFolder(DialogFolder.ImportSid, open.FileName);
 
         SidFile file;
         try
@@ -2034,11 +2036,23 @@ public sealed class MainForm : Form
         {
             Filter = "Patterns.s files (*.s)|*.s|All files (*.*)|*.*",
             FileName = _session.Name is { } name ? name + ".s" : "",
+            InitialDirectory = FolderOr(DialogFolder.SaveAs, _session.FilePath),
         };
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
+        EditorSettings.RememberFolder(DialogFolder.SaveAs, dialog.FileName);
         SaveTo(dialog.FileName);
+    }
+
+    /// <summary>The folder <paramref name="dialog"/> was last used in, or before it has been, the
+    /// one <paramref name="file"/> - the song's own - is in.</summary>
+    private static string FolderOr(DialogFolder dialog, string? file)
+    {
+        string remembered = EditorSettings.FolderFor(dialog);
+        if (remembered.Length > 0)
+            return remembered;
+        return Path.GetDirectoryName(file ?? "") is { Length: > 0 } folder && Directory.Exists(folder) ? folder : string.Empty;
     }
 
     /// <summary>Sounds a note as it's typed. Created on first use, then kept for the session so
@@ -2223,9 +2237,12 @@ public sealed class MainForm : Form
         {
             Filter = "SID files (*.sid)|*.sid|All files (*.*)|*.*",
             FileName = defaultName + ".sid",
+            InitialDirectory = FolderOr(DialogFolder.ExportSid, _session.FilePath),
         };
         if (saveDialog.ShowDialog(this) != DialogResult.OK)
             return;
+
+        EditorSettings.RememberFolder(DialogFolder.ExportSid, saveDialog.FileName);
 
         try
         {
@@ -2256,7 +2273,7 @@ public sealed class MainForm : Form
 
         // Wherever a .sid was last opened from, falling back to where one was last exported to -
         // which is usually the same folder the first time anyone does this.
-        if (EditorSettings.SidOpenDirectory is { Length: > 0 } remembered)
+        if (EditorSettings.FolderFor(DialogFolder.PlaySid) is { Length: > 0 } remembered)
         {
             open.InitialDirectory = remembered;
         }
@@ -2269,8 +2286,7 @@ public sealed class MainForm : Form
         if (open.ShowDialog(this) != DialogResult.OK)
             return;
 
-        if (Path.GetDirectoryName(open.FileName) is { Length: > 0 } opened)
-            EditorSettings.SidOpenDirectory = opened;
+        EditorSettings.RememberFolder(DialogFolder.PlaySid, open.FileName);
 
         // The editor's own playback owns a SidChip too, and two of them mixing into one device is
         // not something anyone wants to hear.
@@ -2397,9 +2413,8 @@ public sealed class MainForm : Form
             Filter = InstrumentFilter,
             Title = "Save instrument",
             FileName = string.Concat(name.Split(Path.GetInvalidFileNameChars())) + ".json",
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.SaveInstrument),
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            dialog.InitialDirectory = remembered;
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
@@ -2407,7 +2422,7 @@ public sealed class MainForm : Form
         try
         {
             File.WriteAllText(dialog.FileName, InstrumentFile.Write(instrument));
-            EditorSettings.InstrumentDirectory = Path.GetDirectoryName(dialog.FileName) ?? "";
+            EditorSettings.RememberFolder(DialogFolder.SaveInstrument, dialog.FileName);
             ShowNotice($"Saved {name} to {Path.GetFileName(dialog.FileName)}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -2425,14 +2440,13 @@ public sealed class MainForm : Form
             Filter = InstrumentFilter,
             Title = "Load instrument",
             Multiselect = true,
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.LoadInstrument),
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            dialog.InitialDirectory = remembered;
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
-        EditorSettings.InstrumentDirectory = Path.GetDirectoryName(dialog.FileNames[0]) ?? "";
+        EditorSettings.RememberFolder(DialogFolder.LoadInstrument, dialog.FileNames[0]);
 
         var problems = new List<string>();
         Instrument? last = null;
