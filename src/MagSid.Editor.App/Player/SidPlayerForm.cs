@@ -456,14 +456,13 @@ public sealed class SidPlayerForm : Form
             // Its own remembered folder, deliberately not the one the tune came from. A dialog
             // with no directory of its own inherits whichever the process used last, which meant
             // exporting offered to write the audio back into the folder the tunes live in.
-            InitialDirectory = EditorSettings.AudioExportDirectory,
+            InitialDirectory = EditorSettings.FolderFor(DialogFolder.ExportAudio),
         };
 
         if (save.ShowDialog(this) != DialogResult.OK)
             return;
 
-        if (Path.GetDirectoryName(save.FileName) is { Length: > 0 } chosen)
-            EditorSettings.AudioExportDirectory = chosen;
+        EditorSettings.RememberFolder(DialogFolder.ExportAudio, save.FileName);
 
         var format = SidAudioExport.FormatOf(save.FileName);
 
