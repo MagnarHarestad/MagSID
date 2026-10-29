@@ -61,6 +61,7 @@ public static class EditorSettings
     private static bool _showHighHex;
     private static bool _swapSpacebar;
     private static bool _compactLoops;
+    private static bool? _checkForUpdates;
     private static string _sidAuthor = string.Empty;
     private static int _sidLoadAddress = MagSid.Core.SidLoadAddress.Default;
     private static readonly Dictionary<DialogFolder, string> _folders = [];
@@ -124,6 +125,28 @@ public static class EditorSettings
                 return;
 
             _compactLoops = value;
+            Save();
+        }
+    }
+
+    /// <summary>
+    /// Whether the editor looks for a newer release each time it starts: null until the user has
+    /// been asked, which the editor does once, on its first start - off until they say yes.
+    /// </summary>
+    public static bool? CheckForUpdates
+    {
+        get
+        {
+            EnsureLoaded();
+            return _checkForUpdates;
+        }
+        set
+        {
+            EnsureLoaded();
+            if (_checkForUpdates == value)
+                return;
+
+            _checkForUpdates = value;
             Save();
         }
     }
@@ -240,6 +263,7 @@ public static class EditorSettings
                 _showHighHex = stored.ShowHighHex;
                 _swapSpacebar = stored.SwapSpacebar;
                 _compactLoops = stored.CompactLoops;
+                _checkForUpdates = stored.CheckForUpdates;
                 _sidAuthor = stored.SidAuthor ?? string.Empty;
                 // Absent in settings written before the address was settable, and 0 there means
                 // "never chosen" rather than "load at $0000".
@@ -286,6 +310,7 @@ public static class EditorSettings
                 ShowHighHex = _showHighHex,
                 SwapSpacebar = _swapSpacebar,
                 CompactLoops = _compactLoops,
+                CheckForUpdates = _checkForUpdates,
                 SidAuthor = _sidAuthor,
                 SidLoadAddress = _sidLoadAddress,
                 Folders = _folders.ToDictionary(f => f.Key.ToString(), f => f.Value),
@@ -304,6 +329,7 @@ public static class EditorSettings
         public bool ShowHighHex { get; set; }
         public bool SwapSpacebar { get; set; }
         public bool CompactLoops { get; set; }
+        public bool? CheckForUpdates { get; set; }
         public string? SidAuthor { get; set; }
         public int? SidLoadAddress { get; set; }
         public Dictionary<string, string>? Folders { get; set; }

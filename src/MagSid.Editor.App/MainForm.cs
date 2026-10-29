@@ -242,7 +242,59 @@ public sealed class MainForm : Form
             // closed the gap Magnar found between the 16th instrument row and the editor
             // panel's own "Instrument NN" heading underneath it.
             _instrumentList.Height = _instrumentList.PreferredHeight;
+
+            // After the window has painted, so the question is asked over the editor, not before it.
+            BeginInvoke(() => _ = AskAboutUpdatesAsync());
         };
+    }
+
+    private readonly ToolStripMenuItem _checkForUpdatesItem = new("&Check for Updates") { CheckOnClick = true };
+
+    /// <summary>On the first start, whether to check for updates from now on - off unless the
+    /// answer is yes; then, when it is on, the check.</summary>
+    private async Task AskAboutUpdatesAsync()
+    {
+        if (EditorSettings.CheckForUpdates is null)
+        {
+            var answer = MessageBox.Show(this,
+                "Check for updates each time MagSID starts?\n\n" +
+                "MagSID would look up the latest version on its website when it starts, and tell you " +
+                "when a newer one is out. Nothing else is sent.\n\n" +
+                "You can change this any time under Menu → Check for Updates.",
+                "Check for updates", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            // Setting the item saves the answer and, for a yes, runs the check.
+            EditorSettings.CheckForUpdates = answer == DialogResult.Yes;
+            _checkForUpdatesItem.Checked = answer == DialogResult.Yes;
+            return;
+        }
+
+        if (EditorSettings.CheckForUpdates == true)
+            await CheckForUpdatesAsync();
+    }
+
+    /// <summary>Looks for a newer release, and offers the website when there is one; says nothing
+    /// when there is not, or when the website cannot be reached.</summary>
+    private async Task CheckForUpdatesAsync()
+    {
+        if (await UpdateCheck.NewerReleaseAsync() is not { } newer || IsDisposed)
+            return;
+
+        var answer = MessageBox.Show(this,
+            $"MagSID {newer} is out - you have {EditorVersion}.\n\nOpen the website to download it?",
+            "A newer MagSID", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+        if (answer != DialogResult.Yes)
+            return;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(UpdateCheck.Website) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageBox.Show(this, $"Could not open the browser. The website is {UpdateCheck.Website}",
+                "A newer MagSID", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
     }
 
     private MenuStrip BuildMenu()
@@ -293,6 +345,15 @@ public sealed class MainForm : Form
         _trackerGrid.Notice += ShowNotice;
         _dawView.Notice += ShowNotice;
 
+        // Off until the user says yes - asked once, on the first start (AskAboutUpdates).
+        _checkForUpdatesItem.Checked = EditorSettings.CheckForUpdates == true;
+        _checkForUpdatesItem.CheckedChanged += (_, _) =>
+        {
+            EditorSettings.CheckForUpdates = _checkForUpdatesItem.Checked;
+            if (_checkForUpdatesItem.Checked)
+                _ = CheckForUpdatesAsync();
+        };
+
         var swapSpacebarItem = new ToolStripMenuItem("Swap &Spacebar Behavior") { CheckOnClick = true };
         swapSpacebarItem.Checked = EditorSettings.SwapSpacebar;
         swapSpacebarItem.CheckedChanged += (_, _) =>
@@ -315,7 +376,7 @@ public sealed class MainForm : Form
         exportSidItem.ShortcutKeys = Keys.F9;
 
         file.DropDownItems.AddRange([aboutItem, new ToolStripSeparator(), _undoItem, _redoItem,
-            new ToolStripSeparator(), newItem, openItem, importMidiItem, importSidItem, new ToolStripSeparator(), saveItem, saveAsItem, new ToolStripSeparator(), loadInstrumentItem, saveInstrumentItem, new ToolStripSeparator(), exportSidItem, loadAndPlaySidItem, new ToolStripSeparator(), showHighHexItem, swapSpacebarItem, unrollLoopsItem, new ToolStripSeparator(), exitItem]);
+            new ToolStripSeparator(), newItem, openItem, importMidiItem, importSidItem, new ToolStripSeparator(), saveItem, saveAsItem, new ToolStripSeparator(), loadInstrumentItem, saveInstrumentItem, new ToolStripSeparator(), exportSidItem, loadAndPlaySidItem, new ToolStripSeparator(), showHighHexItem, swapSpacebarItem, unrollLoopsItem, _checkForUpdatesItem, new ToolStripSeparator(), exitItem]);
         menu.Items.Add(file);
 
         var signalPathItem = new ToolStripMenuItem("&Signal Path", null, (_, _) => DoSignalPath());
