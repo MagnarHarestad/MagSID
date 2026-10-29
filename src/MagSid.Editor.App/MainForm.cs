@@ -1188,7 +1188,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        if (e.KeyCode == PianoKeyMap.OctaveKey)
+        if (PianoKeyMap.IsOctaveKey(e.KeyCode))
         {
             _dawView.StepOctave(e.Shift);
             e.Handled = e.SuppressKeyPress = true;

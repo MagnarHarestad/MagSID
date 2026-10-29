@@ -844,11 +844,10 @@ public sealed class TrackerGridControl : Control
             e.Handled = true;
             return;
         }
-        if (e.KeyCode == PianoKeyMap.OctaveKey)
+        if (PianoKeyMap.IsOctaveKey(e.KeyCode))
         {
-            // ' alone lowers the octave, Shift+' raises it - resolved against the *current
-            // Windows input layout* rather than hardcoded to the US Oem7 position, so this
-            // lands on whatever key actually types ' for the active keyboard layout.
+            // ' alone lowers the octave, Shift+' raises it - the key in the Swedish apostrophe's
+            // place on any layout, and the key that types ' on it (see PianoKeyMap).
             _octave = PianoKeyMap.StepOctave(_octave, e.Shift);
             Invalidate();
             e.Handled = true;
@@ -951,20 +950,12 @@ public sealed class TrackerGridControl : Control
 
         if (_cursorField == CursorField.Note)
         {
-            if (PianoKeyMap.LowerPitch(e.KeyCode) is { } lowerPitch)
+            // The upper row and the keys after each row's octave play the octaves above.
+            if (PianoKeyMap.Play(e.KeyCode, _octave) is { } played)
             {
-                if (TryBeginJamHold(e.KeyCode, lowerPitch, _octave))
+                if (TryBeginJamHold(e.KeyCode, played.PitchClass, played.Octave))
                 {
-                    EnterNote(lowerPitch, _octave);
-                }
-                e.Handled = true;
-                return;
-            }
-            if (PianoKeyMap.UpperPitch(e.KeyCode) is { } upperPitch)
-            {
-                if (TryBeginJamHold(e.KeyCode, upperPitch, _octave + 1))
-                {
-                    EnterNote(upperPitch, _octave + 1);
+                    EnterNote(played.PitchClass, played.Octave);
                 }
                 e.Handled = true;
                 return;
