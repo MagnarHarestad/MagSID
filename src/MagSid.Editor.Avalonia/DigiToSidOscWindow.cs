@@ -159,9 +159,12 @@ internal sealed class DigiToSidOscWindow : Window
         {
             Title = "Load .wav",
             FileTypeFilter = [WavFiles],
+            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.DigiWav),
         });
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
             return;
+
+        EditorSettings.RememberFolder(DialogFolder.DigiWav, path);
 
         try
         {

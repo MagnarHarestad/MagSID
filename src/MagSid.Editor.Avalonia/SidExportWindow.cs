@@ -121,9 +121,12 @@ internal sealed class SidExportWindow : Window
             SuggestedFileName = (string.IsNullOrWhiteSpace(_name.Text) ? "Untitled" : _name.Text.Trim()) + ".sid",
             DefaultExtension = "sid",
             FileTypeChoices = [new FilePickerFileType("SID tunes") { Patterns = ["*.sid"] }],
+            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.ExportSid),
         });
         if (target?.TryGetLocalPath() is not { } path)
             return;
+
+        EditorSettings.RememberFolder(DialogFolder.ExportSid, path);
 
         try
         {

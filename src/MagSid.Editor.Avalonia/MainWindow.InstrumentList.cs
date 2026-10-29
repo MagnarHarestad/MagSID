@@ -327,8 +327,7 @@ public sealed partial class MainWindow
             DefaultExtension = "json",
             FileTypeChoices = [InstrumentFiles],
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(remembered);
+        options.SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.SaveInstrument);
 
         var file = await StorageProvider.SaveFilePickerAsync(options);
         if (file?.TryGetLocalPath() is not { } path)
@@ -337,7 +336,7 @@ public sealed partial class MainWindow
         try
         {
             File.WriteAllText(path, InstrumentFile.Write(instrument));
-            EditorSettings.InstrumentDirectory = Path.GetDirectoryName(path) ?? "";
+            EditorSettings.RememberFolder(DialogFolder.SaveInstrument, path);
             ShowNotice($"Saved {name} to {Path.GetFileName(path)}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

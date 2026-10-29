@@ -374,8 +374,7 @@ internal sealed class MidiImportWindow : Window
             Title = $"Instrument for voice {voice + 1}",
             FileTypeFilter = [new FilePickerFileType("MagSID instruments") { Patterns = ["*.json"] }, FilePickerFileTypes.All],
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(remembered);
+        options.SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.MidiInstrument);
 
         var files = await StorageProvider.OpenFilePickerAsync(options);
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
@@ -384,7 +383,7 @@ internal sealed class MidiImportWindow : Window
         try
         {
             _instrument[voice] = InstrumentFile.Read(File.ReadAllText(path));
-            EditorSettings.InstrumentDirectory = Path.GetDirectoryName(path) ?? "";
+            EditorSettings.RememberFolder(DialogFolder.MidiInstrument, path);
             Recalculate(sourcesChanged: false);
         }
         catch (Exception ex) when (ex is InstrumentFileException or IOException or UnauthorizedAccessException)

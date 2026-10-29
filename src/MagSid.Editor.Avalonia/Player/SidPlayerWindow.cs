@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using MagSid.Editor.App;
 using MagSid.Playback;
 
 namespace MagSid.Editor.Avalonia.Player;
@@ -207,10 +208,14 @@ public sealed class SidPlayerWindow : Window
             Title = "Load and play .sid",
             AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("SID tunes") { Patterns = ["*.sid"] }, FilePickerFileTypes.All],
+            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.PlaySid),
         });
 
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            EditorSettings.RememberFolder(DialogFolder.PlaySid, path);
             Load(path);
+        }
     }
 
     private void OnDrop(object? sender, DragEventArgs e)
@@ -390,10 +395,13 @@ public sealed class SidPlayerWindow : Window
             {
                 Patterns = [$"*{SidAudioExport.ExtensionOf(format)}"],
             }).ToList(),
+            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.ExportAudio),
         });
 
         if (target?.TryGetLocalPath() is not { } path)
             return;
+
+        EditorSettings.RememberFolder(DialogFolder.ExportAudio, path);
 
         _exporting = true;
         _export.Content = "Rendering...";

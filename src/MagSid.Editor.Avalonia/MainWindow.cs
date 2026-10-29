@@ -855,15 +855,14 @@ public sealed partial class MainWindow : Window
             AllowMultiple = true,
             FileTypeFilter = [InstrumentFiles, FilePickerFileTypes.All],
         };
-        if (EditorSettings.InstrumentDirectory is { Length: > 0 } remembered)
-            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(remembered);
+        options.SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.LoadInstrument);
 
         var files = await StorageProvider.OpenFilePickerAsync(options);
         var paths = files.Select(f => f.TryGetLocalPath()).OfType<string>().ToList();
         if (paths.Count == 0)
             return;
 
-        EditorSettings.InstrumentDirectory = Path.GetDirectoryName(paths[0]) ?? "";
+        EditorSettings.RememberFolder(DialogFolder.LoadInstrument, paths[0]);
 
         var problems = new List<string>();
         Instrument? last = null;
@@ -1577,14 +1576,13 @@ public sealed partial class MainWindow : Window
             Title = "Import MIDI",
             FileTypeFilter = [new FilePickerFileType("MIDI files") { Patterns = ["*.mid", "*.midi"] }, FilePickerFileTypes.All],
         };
-        if (EditorSettings.MidiImportDirectory is { Length: > 0 } remembered)
-            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(remembered);
+        options.SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.ImportMidi);
 
         var files = await StorageProvider.OpenFilePickerAsync(options);
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
             return;
 
-        EditorSettings.MidiImportDirectory = Path.GetDirectoryName(path) ?? "";
+        EditorSettings.RememberFolder(DialogFolder.ImportMidi, path);
 
         MidiSong midi;
         try
@@ -1629,14 +1627,13 @@ public sealed partial class MainWindow : Window
             Title = "Import SID",
             FileTypeFilter = [new FilePickerFileType("SID tunes") { Patterns = ["*.sid"] }, FilePickerFileTypes.All],
         };
-        if (EditorSettings.SidOpenDirectory is { Length: > 0 } remembered)
-            options.SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(remembered);
+        options.SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.ImportSid);
 
         var files = await StorageProvider.OpenFilePickerAsync(options);
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
             return;
 
-        EditorSettings.SidOpenDirectory = Path.GetDirectoryName(path) ?? "";
+        EditorSettings.RememberFolder(DialogFolder.ImportSid, path);
 
         SidFile file;
         try
@@ -1688,10 +1685,14 @@ public sealed partial class MainWindow : Window
             Title = "Open song",
             AllowMultiple = false,
             FileTypeFilter = [SongFiles, FilePickerFileTypes.All],
+            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.Open),
         });
 
         if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            EditorSettings.RememberFolder(DialogFolder.Open, path);
             Open(path);
+        }
     }
 
     private void Open(string path)
@@ -1719,10 +1720,12 @@ public sealed partial class MainWindow : Window
                 SuggestedFileName = (_session.Name ?? "Untitled") + ".s",
                 DefaultExtension = "s",
                 FileTypeChoices = [SongFiles],
+                SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.SaveAs, _session.FilePath),
             });
             path = target?.TryGetLocalPath();
             if (path is null)
                 return false;
+            EditorSettings.RememberFolder(DialogFolder.SaveAs, path);
         }
 
         try
