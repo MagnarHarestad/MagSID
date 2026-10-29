@@ -685,7 +685,7 @@ public class MidiImportTests
     [Fact]
     public void A_suggested_source_is_found_in_a_fresh_list_of_sources()
     {
-        // The import dialog lists Sources() and looks the suggestions up in it.
+        // The import dialogs list Sources() and look the suggestions up in it.
         var midi = ChordsAndTune();
         var voices = MidiImporter.SuggestVoices(midi);
         var sources = midi.Sources();

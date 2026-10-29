@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\MagSid.Core\MagSid.Core.csproj" />
@@ -9,7 +9,9 @@
     <!-- MIDI input for the DAW's knobs and step entry. Same package family as the audio, so
          nothing new travels with the single-file build. -->
     <PackageReference Include="NAudio.Midi" Version="2.2.1" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
     <ProjectReference Include="..\MagSid.Playback\MagSid.Playback.csproj" />
+    <ProjectReference Include="..\MagSid.Editor.Common\MagSid.Editor.Common.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -18,7 +20,7 @@
          assembly is renamed, so the .exe and its .dll are MagSID-Editor.* -->
     <AssemblyName>MagSID-Editor</AssemblyName>
     <!-- The editor's version: what About shows and what the .exe's properties say. -->
-    <Version>1.64</Version>
+    <Version>1.51</Version>
     <TargetFramework>net8.0-windows</TargetFramework>
     <!-- Runs on any Desktop Runtime from 8 upwards. Without it a machine carrying only .NET 9 or
          10 refuses to start the app although its runtime is newer than the one asked for, which is
