@@ -138,8 +138,8 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------------------------------ updates
 
-    /// <summary>MagSID's releases, from 2.0 this editor on every system - tagged v2.0 and on, the
-    /// same repository and website the Windows editor 1.x looks to.</summary>
+    /// <summary>MagSID's releases, from 1.7 this editor on every system - tagged v1.7 and on, the
+    /// same repository and website the WinForms editor up to 1.64 looks to.</summary>
     private const string UpdateRepository = UpdateCheck.Repository;
 
     private const string UpdateTagPrefix = UpdateCheck.TagPrefix;

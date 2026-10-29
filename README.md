@@ -39,8 +39,8 @@ the first time.
 Settings — MIDI device, knob bindings, view preferences — are kept in `settings.json` under
 `MagSid.Editor` in the user's application data folder (`%APPDATA%` on Windows).
 
-Until 1.64 MagSID was a Windows-only WinForms editor; from 2.0 it is one Avalonia editor on every
-system. 1.x settings carry over.
+Until 1.64 MagSID was a Windows-only WinForms editor; from 1.7 it is one Avalonia editor on every
+system. 1.64's settings carry over.
 
 ### Getting started
 
@@ -77,7 +77,7 @@ src/
   MagSid.Editor.Views/    the tracker grid and DAW views, compiled against Shim/ - WinForms and GDI+
                           over Avalonia
   MagSid.Editor.Common/   settings, session, .sid export - shared by both editors
-  MagSid.Editor.App/      the WinForms editor (1.x): the source of the grid and DAW views
+  MagSid.Editor.App/      the WinForms editor (to 1.64): the source of the grid and DAW views
   MagSid.Audio.PortAudio/ sound out on every system
   MagSid.Midi/            MIDI in: WinMM, CoreMIDI, ALSA
 tests/
@@ -130,7 +130,7 @@ dotnet build MagSid.sln
 dotnet test MagSid.sln
 ```
 
-A tag `v2.0` makes `.github/workflows/release.yml` build the packages for every system - the Mac app
+A tag `v1.7` makes `.github/workflows/release.yml` build the packages for every system - the Mac app
 for Apple Silicon and Intel, Windows and Linux, each with .NET inside - and open a draft release with
 them. `packaging/portable/package.sh` and `packaging/macos/package.sh` do the same by hand.
 

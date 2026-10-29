@@ -1,6 +1,6 @@
 name: release
 
-# A tag v2.0 builds every package - the Mac app for Apple Silicon and Intel, Windows and
+# A tag v1.7 builds every package - the Mac app for Apple Silicon and Intel, Windows and
 # Linux - signs what there are keys for, and opens a DRAFT release with them, to be looked over and
 # published by hand. Run by hand from the Actions tab it builds the same packages as artifacts
 # only, with no release, to try the packaging out.
