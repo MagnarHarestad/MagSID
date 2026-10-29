@@ -5,6 +5,9 @@ name: release
 # published by hand. Run by hand from the Actions tab it builds the same packages as artifacts
 # only, with no release, to try the packaging out.
 #
+# Not a pre-release: the editor's Check for Updates asks GitHub for the latest release, and GitHub
+# leaves pre-releases out of that.
+#
 # Signing on the Mac uses these repository secrets when they are there, and ad hoc signing when
 # they are not (macOS then has to be told once to open it - see the release notes below):
 #   MACOS_CERTIFICATE_P12        a "Developer ID Application" certificate with its key, base64
@@ -191,5 +194,5 @@ jobs:
 
           SHA-256 checksums are in SHA256SUMS.txt.
           NOTES
-          gh release create "$GITHUB_REF_NAME" dist/* --draft --prerelease \
+          gh release create "$GITHUB_REF_NAME" dist/* --draft \
             --title "MagSID Xplatform $VERSION" --notes-file notes.md
