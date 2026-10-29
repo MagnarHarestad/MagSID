@@ -882,7 +882,34 @@ internal static class KeyMap
         return keys;
     }
 
+    /// <summary>PC scan codes of the keys the tracker piano plays from, by Avalonia's names for
+    /// them - names of places on the keyboard, not of what the layout prints there.</summary>
+    private static readonly Dictionary<PhysicalKey, int> PianoScanCodes = new()
+    {
+        [PhysicalKey.Z] = 0x2C, [PhysicalKey.S] = 0x1F, [PhysicalKey.X] = 0x2D, [PhysicalKey.D] = 0x20,
+        [PhysicalKey.C] = 0x2E, [PhysicalKey.V] = 0x2F, [PhysicalKey.G] = 0x22, [PhysicalKey.B] = 0x30,
+        [PhysicalKey.H] = 0x23, [PhysicalKey.N] = 0x31, [PhysicalKey.J] = 0x24, [PhysicalKey.M] = 0x32,
+        [PhysicalKey.Comma] = 0x33, [PhysicalKey.L] = 0x26, [PhysicalKey.Period] = 0x34,
+        [PhysicalKey.Semicolon] = 0x27, [PhysicalKey.Slash] = 0x35,
+        [PhysicalKey.Q] = 0x10, [PhysicalKey.Digit2] = 0x03, [PhysicalKey.W] = 0x11, [PhysicalKey.Digit3] = 0x04,
+        [PhysicalKey.E] = 0x12, [PhysicalKey.R] = 0x13, [PhysicalKey.Digit5] = 0x06, [PhysicalKey.T] = 0x14,
+        [PhysicalKey.Digit6] = 0x07, [PhysicalKey.Y] = 0x15, [PhysicalKey.Digit7] = 0x08, [PhysicalKey.U] = 0x16,
+        [PhysicalKey.I] = 0x17, [PhysicalKey.Digit9] = 0x0A, [PhysicalKey.O] = 0x18, [PhysicalKey.Digit0] = 0x0B,
+        [PhysicalKey.P] = 0x19, [PhysicalKey.BracketLeft] = 0x1A, [PhysicalKey.Equal] = 0x0D,
+        [PhysicalKey.BracketRight] = 0x1B,
+
+        // Beside Enter: the Swedish apostrophe, the US backslash - the octave key.
+        [PhysicalKey.Backslash] = 0x2B,
+    };
+
     public static Keys From(AvKeyEventArgs e)
+    {
+        var key = FromLayout(e);
+        MagSid.Editor.App.PianoKeyMap.Seen(key, PianoScanCodes.GetValueOrDefault(e.PhysicalKey), e.KeySymbol);
+        return key;
+    }
+
+    private static Keys FromLayout(AvKeyEventArgs e)
     {
         if (FromKey(e.Key) is var named and not Keys.None)
             return named;

@@ -758,7 +758,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (key == PianoKeyMap.OctaveKey)
+        if (PianoKeyMap.IsOctaveKey(key))
         {
             _daw.StepOctave(shift);
             e.Handled = true;
