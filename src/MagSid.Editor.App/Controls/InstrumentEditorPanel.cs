@@ -175,6 +175,8 @@ public sealed class InstrumentEditorPanel : UserControl
             AllowUserToDeleteRows = false,
             AllowUserToResizeColumns = false,
             AllowUserToResizeRows = false,
+            // The line under the headers would otherwise drag the header row taller or shorter.
+            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
             RowHeadersVisible = false,
             // AllCells, not Fill (2026-08-31, per Magnar's own ask): each column sizes to fit
             // its own header/content instead of stretching proportionally to fill the grid's
