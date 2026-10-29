@@ -1,6 +1,6 @@
 # MagSID
 
-A Windows tracker for writing Commodore 64 music, and the SID player that plays it on real hardware.
+A tracker for writing Commodore 64 music, on Windows, macOS and Linux, and the SID player that plays it on real hardware.
 
 By Magnar Harestad of Censor Design. A big thanks and shoutout to my fellow Censor Design members: Krikkit,
 Slaygon, Bob and Swallow for design inspirations, technical advices, tools & SVN repo + infrastructure.
@@ -22,21 +22,25 @@ song uses it. A finished song lands at roughly 750–1250 bytes including the pl
 
 ### Requirements
 
-- Windows 10 or 11, 64-bit
-- The [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) for x64 — Windows
-  offers to fetch it the first time the editor starts if it is missing
+- Windows 10 or 11 (64-bit), macOS (Apple Silicon or Intel), or Linux on x64
+- Nothing to install besides: .NET is built into each download
 
 Nothing else: no assembler, no emulator. Export to `.sid` and playing a `.sid` back are built in.
 
 ### Installing
 
-`MagSID-Editor.exe` is the whole program — put it in any folder and run it. There is no installer.
+Unpack the download anywhere and run `MagSID.exe` on Windows, `MagSID.app` on a Mac (moved to
+Applications) or `./MagSID` on Linux. There is no installer.
 
-The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose
-**More info → Run anyway**.
+The Windows exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher.
+Choose **More info → Run anyway**. The Mac app is not notarised yet; the website says how to open it
+the first time.
 
-Settings — MIDI device, knob bindings, view preferences — are kept in
-`%APPDATA%\MagSid.Editor\settings.json`.
+Settings — MIDI device, knob bindings, view preferences — are kept in `settings.json` under
+`MagSid.Editor` in the user's application data folder (`%APPDATA%` on Windows).
+
+Until 1.64 MagSID was a Windows-only WinForms editor; from 2.0 it is one Avalonia editor on every
+system. 1.x settings carry over.
 
 ### Getting started
 
@@ -69,7 +73,13 @@ src/
   MagSid.Sid/             a reSID port - the chip itself
   MagSid.Playback/        voices, sequencer, jam mode, filter, the .sid player
   MagSid.Assembler/       the .sid export: a 6502 emitter and the player expressed against it
-  MagSid.Editor.App/      the WinForms editor
+  MagSid.Editor.Avalonia/ the editor, on Windows, macOS and Linux
+  MagSid.Editor.Views/    the tracker grid and DAW views, compiled against Shim/ - WinForms and GDI+
+                          over Avalonia
+  MagSid.Editor.Common/   settings, session, .sid export - shared by both editors
+  MagSid.Editor.App/      the WinForms editor (1.x): the source of the grid and DAW views
+  MagSid.Audio.PortAudio/ sound out on every system
+  MagSid.Midi/            MIDI in: WinMM, CoreMIDI, ALSA
 tests/
 SongData/                 the songs, as plain text
 Digi/                     a sample for the Digi-to-SID-osc feature
@@ -120,12 +130,9 @@ dotnet build MagSid.sln
 dotnet test MagSid.sln
 ```
 
-To hand the editor to someone, one file is enough; they need the .NET 8 Desktop Runtime and nothing
-more:
-
-```
-dotnet publish src/MagSid.Editor.App/MagSid.Editor.App.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
-```
+A tag `v2.0` makes `.github/workflows/release.yml` build the packages for every system - the Mac app
+for Apple Silicon and Intel, Windows and Linux, each with .NET inside - and open a draft release with
+them. `packaging/portable/package.sh` and `packaging/macos/package.sh` do the same by hand.
 
 ## Optional
 

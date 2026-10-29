@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MagSID - a C64 music tracker for Windows</title>
-<meta name="description" content="MagSID - a Windows tracker for Commodore 64 music, with a tiny SID player that plays exactly what you hear in the editor.">
+<title>MagSID - a C64 music tracker for Windows, macOS and Linux</title>
+<meta name="description" content="MagSID - a tracker for Commodore 64 music on Windows, macOS and Linux, with a tiny SID player that plays exactly what you hear in the editor.">
 <link rel="icon" href="favicon.png">
 <link rel="stylesheet" href="style.css?v=4">
 </head>
@@ -15,18 +15,18 @@
 <main class="wrap">
   <section class="hero">
     <img src="logo.png" alt="MagSID logo">
-    <h1>MagSID Editor <span id="version">v1.64</span></h1>
-    <p class="released">Release date: <time id="released" datetime="2026-10-29">2026-10-29</time></p>
-    <p>A Windows tracker for Commodore 64 music. Write in a classic tracker grid or a DAW-style piano roll,
+    <h1>MagSID Editor <span id="version">v2.0</span></h1>
+    <p class="released">Release date: <time id="released" datetime="2026-10-30">2026-10-30</time></p>
+    <p>A tracker for Commodore 64 music, for Windows, macOS and Linux. Write in a classic tracker grid or a DAW-style piano roll,
       hear it through reSID, and export a <code>.sid</code> that plays exactly the same on the real machine.</p>
     <div class="download">
-      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/latest">Download for Windows</a>
-      <small>Free and open source · Windows 10/11, 64-bit · needs the .NET 8 Desktop Runtime</small>
-      <p class="also"><span class="tag">Preview 0.7</span> Also for
-        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.7/MagSID-0.7-macos-arm64.zip">macOS · Apple Silicon</a>
-        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.7/MagSID-0.7-macos-x64.zip">macOS · Intel</a>
-        <a href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/download/xplatform-v0.7/MagSID-0.7-linux-x64.tar.gz">Linux · x64</a>
-        <a class="plain" href="https://github.com/MagnarHarestad/MagSID-Xplatform/releases/tag/xplatform-v0.7">release notes</a>
+      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v2.0/MagSID-2.0-windows-x64.zip">Download for Windows</a>
+      <small>Free and open source · Windows 10/11, 64-bit · nothing else to install</small>
+      <p class="also">Also for
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v2.0/MagSID-2.0-macos-arm64.zip">macOS · Apple Silicon</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v2.0/MagSID-2.0-macos-x64.zip">macOS · Intel</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v2.0/MagSID-2.0-linux-x64.tar.gz">Linux · x64</a>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/latest">release notes</a>
         <a class="plain" href="#mac">opening it on a Mac</a></p>
     </div>
   </section>
@@ -119,13 +119,12 @@
 
   <h2 id="start">Get started</h2>
   <ol class="steps">
-    <li>Install the <a href="https://dotnet.microsoft.com/download/dotnet/8.0">.NET 8 Desktop Runtime</a> for x64, if Windows doesn't already have it.</li>
-    <li>Download the zip from the <a href="https://github.com/MagnarHarestad/MagSID/releases/latest">latest release</a>, unpack it anywhere and run <code>MagSID-Editor.exe</code>. There is no installer.</li>
-    <li>Open a song from the <a href="https://github.com/MagnarHarestad/MagSID/tree/main/SongData">example songs</a> with <b>Menu → Open</b> (F10). F1 plays from the top, F2 from the cursor, F4 stops.</li>
-    <li><b>Menu → About</b> lists every key and control.</li>
+    <li>Download MagSID for your system from the <a href="https://github.com/MagnarHarestad/MagSID/releases/latest">latest release</a> and unpack it anywhere: <code>MagSID.exe</code> on Windows, <code>MagSID.app</code> on a Mac, <code>./MagSID</code> on Linux. There is no installer, and .NET is built in.</li>
+    <li>Open a song from the <a href="https://github.com/MagnarHarestad/MagSID/tree/main/SongData">example songs</a> with <b>File → Open</b> (F10). F1 plays from the top, F2 from the cursor, F4 stops.</li>
+    <li><b>Help → About</b> lists every key and control.</li>
   </ol>
   <div class="note">The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
-  <div class="note"><b>macOS and Linux</b> get the <a href="https://github.com/MagnarHarestad/MagSID-Xplatform">cross-platform preview</a>, with .NET built in - nothing else to install. It has everything the Windows editor has - Import MIDI and SID, Optimize, Signal Path, Digi to SID-osc, MIDI keyboards. On Linux, unpack it and run <code>./MagSID</code>.</div>
+  <div class="note"><b>From 2.0 MagSID is one editor on Windows, macOS and Linux</b>, with everything the Windows editor 1.x has - Import MIDI and SID, Optimize, Signal Path, Digi to SID-osc, MIDI keyboards. It keeps 1.x's settings. The last 1.x, <a href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.64">1.64</a>, stays available.</div>
   <div class="note mac" id="mac">
     <p><b>On a Mac</b>, unzip the download and move MagSID to Applications. The app is not notarised by Apple yet, so macOS stops it the first time it is opened:</p>
     <ul>
@@ -245,7 +244,7 @@ document.querySelectorAll('.video .player').forEach(link => link.addEventListene
   link.replaceWith(frame);
 }));
 
-// The version and release date under the logo follow the latest release; v1.64 and its date stand
+// The version and release date under the logo follow the latest release; v2.0 and its date stand
 // until GitHub answers, or if it does not.
 fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
   .then(response => response.ok ? response.json() : null)

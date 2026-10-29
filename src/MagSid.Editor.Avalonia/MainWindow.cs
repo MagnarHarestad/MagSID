@@ -138,11 +138,11 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------------------------------ updates
 
-    /// <summary>The cross-platform editor's releases - on its own repository, tagged xplatform-v0.6
-    /// and on - downloaded from the same website as the Windows editor.</summary>
-    private const string UpdateRepository = "MagnarHarestad/MagSID-Xplatform";
+    /// <summary>MagSID's releases, from 2.0 this editor on every system - tagged v2.0 and on, the
+    /// same repository and website the Windows editor 1.x looks to.</summary>
+    private const string UpdateRepository = UpdateCheck.Repository;
 
-    private const string UpdateTagPrefix = "xplatform-v";
+    private const string UpdateTagPrefix = UpdateCheck.TagPrefix;
 
     private readonly MenuItem _checkForUpdatesItem = new() { Header = "Check for Updates", ToggleType = MenuItemToggleType.CheckBox };
 

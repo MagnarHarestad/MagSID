@@ -1,6 +1,6 @@
 name: release
 
-# A tag xplatform-v0.2 builds every package - the Mac app for Apple Silicon and Intel, Windows and
+# A tag v2.0 builds every package - the Mac app for Apple Silicon and Intel, Windows and
 # Linux - signs what there are keys for, and opens a DRAFT release with them, to be looked over and
 # published by hand. Run by hand from the Actions tab it builds the same packages as artifacts
 # only, with no release, to try the packaging out.
@@ -17,7 +17,7 @@ name: release
 #   APPLE_API_ISSUER             its issuer id
 on:
   push:
-    tags: ['xplatform-v*']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
@@ -38,7 +38,7 @@ jobs:
           TRIAL: ${{ inputs.version }}
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            echo "version=${GITHUB_REF_NAME#xplatform-v}" >> "$GITHUB_OUTPUT"
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             echo "version=$TRIAL" >> "$GITHUB_OUTPUT"
           fi
@@ -175,7 +175,7 @@ jobs:
           - If macOS says MagSID *is damaged and can'"'"'t be opened*, remove the mark macOS puts on downloads, in Terminal: `xattr -dr com.apple.quarantine /Applications/MagSID.app` - only for software you trust.'
           fi
           cat > notes.md <<NOTES
-          MagSID Editor $VERSION for macOS, Windows and Linux - the Avalonia port.
+          MagSID Editor $VERSION for Windows, macOS and Linux.
 
           | Download | For |
           |---|---|
@@ -195,4 +195,4 @@ jobs:
           SHA-256 checksums are in SHA256SUMS.txt.
           NOTES
           gh release create "$GITHUB_REF_NAME" dist/* --draft \
-            --title "MagSID Xplatform $VERSION" --notes-file notes.md
+            --title "MagSID Editor $VERSION" --notes-file notes.md
