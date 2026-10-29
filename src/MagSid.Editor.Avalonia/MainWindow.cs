@@ -121,7 +121,105 @@ public sealed partial class MainWindow : Window
             if (songPath is not null)
                 Open(songPath);
             _grid.Focus();
+            Dispatcher.UIThread.Post(() => _ = AskAboutUpdatesAsync(), DispatcherPriority.Background);
         };
+
+        // Its state is EditorSettings' - the first start's question can set it too.
+        _checkForUpdatesItem.IsChecked = EditorSettings.CheckForUpdates == true;
+        _checkForUpdatesItem.Click += (_, _) =>
+        {
+            bool on = EditorSettings.CheckForUpdates != true;
+            EditorSettings.CheckForUpdates = on;
+            _checkForUpdatesItem.IsChecked = on;
+            if (on)
+                _ = CheckForUpdatesAsync();
+        };
+    }
+
+    // ------------------------------------------------------------------------------------ updates
+
+    /// <summary>The cross-platform editor's releases - on its own repository, tagged xplatform-v0.6
+    /// and on - downloaded from the same website as the Windows editor.</summary>
+    private const string UpdateRepository = "MagnarHarestad/MagSID-Xplatform";
+
+    private const string UpdateTagPrefix = "xplatform-v";
+
+    private readonly MenuItem _checkForUpdatesItem = new() { Header = "Check for Updates", ToggleType = MenuItemToggleType.CheckBox };
+
+    /// <summary>On the first start, whether to check for updates from now on - off unless the
+    /// answer is yes; then, when it is on, the check.</summary>
+    private async Task AskAboutUpdatesAsync()
+    {
+        if (EditorSettings.CheckForUpdates is null)
+        {
+            bool yes = await AskAsync("Check for updates",
+                "Check for updates each time MagSID starts?",
+                "MagSID would look up the latest version on its website when it starts, and tell you when a " +
+                "newer one is out. Nothing else is sent. You can change this any time under File → Check for Updates.");
+            EditorSettings.CheckForUpdates = yes;
+            _checkForUpdatesItem.IsChecked = yes;
+            if (!yes)
+                return;
+        }
+
+        if (EditorSettings.CheckForUpdates == true)
+            await CheckForUpdatesAsync();
+    }
+
+    /// <summary>Looks for a newer release, and offers the website when there is one; says nothing
+    /// when there is not, or when the website cannot be reached.</summary>
+    private async Task CheckForUpdatesAsync()
+    {
+        if (await UpdateCheck.NewerReleaseAsync(UpdateRepository, UpdateTagPrefix) is not { } newer)
+            return;
+
+        string version = newer[UpdateTagPrefix.Length..];
+        string running = UpdateCheck.Running?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?";
+        if (await AskAsync("A newer MagSID", $"MagSID {version} is out - you have {running}.", "Open the website to download it?")
+            && Launcher is { } launcher)
+            await launcher.LaunchUriAsync(new Uri(UpdateCheck.Website));
+    }
+
+    /// <summary>A yes-or-no question; true for Yes.</summary>
+    private async Task<bool> AskAsync(string title, string question, string detail)
+    {
+        bool answer = false;
+        var window = new Window
+        {
+            Title = title,
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var yes = new Button { Content = "Yes", MinWidth = 90, IsDefault = true };
+        yes.Click += (_, _) =>
+        {
+            answer = true;
+            window.Close();
+        };
+        var no = new Button { Content = "No", MinWidth = 90, IsCancel = true };
+        no.Click += (_, _) => window.Close();
+
+        window.Content = new StackPanel
+        {
+            Margin = new Thickness(18),
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock { Text = question, TextWrapping = TextWrapping.Wrap },
+                new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, Foreground = Dim },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Children = { yes, no },
+                },
+            },
+        };
+        await window.ShowDialog(this);
+        return answer;
     }
 
     // ------------------------------------------------------------------------------------ layout
@@ -411,6 +509,7 @@ public sealed partial class MainWindow : Window
                     _grid.UnrollLoops = on;
                     _daw.UnrollLoops = on;
                 }),
+                _checkForUpdatesItem,
                 new Separator(),
                 Item("Quit", Close),
             },
