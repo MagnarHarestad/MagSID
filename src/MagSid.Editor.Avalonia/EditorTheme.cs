@@ -60,6 +60,8 @@ internal static class EditorTheme
         app.Resources["MenuBarItemPadding"] = new Thickness(7, 3, 7, 3);
         app.Resources["MenuFlyoutPresenterBackground"] = Field;
         app.Resources["MenuFlyoutPresenterBorderBrush"] = Border;
+        app.Resources["FlyoutPresenterBackground"] = Field;
+        app.Resources["FlyoutBorderThemeBrush"] = Border;
         app.Resources["MenuFlyoutItemBackgroundPointerOver"] = ButtonHover;
         app.Resources["MenuFlyoutItemBackgroundPressed"] = Button;
         app.Resources["ToolTipBackground"] = Field;

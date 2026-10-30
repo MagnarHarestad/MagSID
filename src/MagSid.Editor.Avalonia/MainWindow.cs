@@ -49,11 +49,6 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock _editMode = new();
     private readonly Button _play = new();
     private readonly Button _chip = new();
-    private readonly NumericUpDown _speed = new();
-
-    // Funk speed: every second row lasts this speed instead. The same value as Song Speed is no
-    // funk at all - which is what it shows, and follows the speed, until it is set to another.
-    private readonly NumericUpDown _funkSpeed = new();
     // A fallback: while playback runs, the window drains events and repaints once per displayed
     // frame (see OnPlaybackFrame). This keeps the drain going when no frames are drawn - minimised.
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(100) };
@@ -259,42 +254,7 @@ public sealed partial class MainWindow : Window
             _grid.Focus();
         };
 
-        _speed.Minimum = 0;
-        _speed.Maximum = 31;
-        _speed.Width = 110;
-        _speed.FormatString = "0";
-        _speed.ValueChanged += (_, e) =>
-        {
-            if (_refreshing || e.NewValue is not { } value)
-                return;
-            _session.Song.Speed = (int)value;
-            if (_session.Song.FunkSpeed is null)
-            {
-                _refreshing = true;
-                _funkSpeed.Value = value;
-                _refreshing = false;
-            }
-            else if (_session.Song.FunkSpeed == _session.Song.Speed)
-            {
-                _session.Song.FunkSpeed = null;
-            }
-            _session.MarkDirty();
-        };
-
-        _funkSpeed.Minimum = 0;
-        _funkSpeed.Maximum = 31;
-        _funkSpeed.Width = 110;
-        _funkSpeed.FormatString = "0";
-        ToolTip.SetTip(_funkSpeed, "Funk speed: every second row lasts this speed instead - a swing, as " +
-                                   "GoatTracker's funktempo. The same as Song Speed: no funk. Costs 6 bytes.");
-        _funkSpeed.ValueChanged += (_, e) =>
-        {
-            if (_refreshing || e.NewValue is not { } value)
-                return;
-            _session.Song.FunkSpeed = (int)value == _session.Song.Speed ? null : (int)value;
-            _session.MarkDirty();
-            RefreshStatus();
-        };
+        var speed = BuildSpeedButton();
 
         _editMode.VerticalAlignment = VerticalAlignment.Center;
         _editMode.Cursor = new Cursor(StandardCursorType.Hand);
@@ -322,10 +282,6 @@ public sealed partial class MainWindow : Window
         };
         UpdateChipButton();
 
-        _speed.Width = _funkSpeed.Width = 50;
-
-        var funkLabel = Label("Funk:");
-        ToolTip.SetTip(funkLabel, ToolTip.GetTip(_funkSpeed));
         var open = StripButton("Open", () => _ = OpenAsync());
         var save = StripButton("Save", () => _ = SaveAsync(saveAs: false));
         var previous = StripButton("◀", () => _grid.MoveCursorRowPage(-TrackerGridControl.PageRows));
@@ -348,8 +304,7 @@ public sealed partial class MainWindow : Window
                 Children =
                 {
                     open, save, StripSeparator(),
-                    Label("Song Speed:"), _speed,
-                    funkLabel, _funkSpeed, StripSeparator(),
+                    speed, StripSeparator(),
                     _play, _editMode, _chip, StripSeparator(),
                     Label("Scroll:"), previous, next, StripSeparator(),
                     _songLength, StripSeparator(),
@@ -986,8 +941,7 @@ public sealed partial class MainWindow : Window
             _grid.SetSong(_session.Song);
             // Undo restores a whole-song snapshot, so the DAW is pointed at the new object too.
             _daw.LoadSong(_session.Song);
-            _speed.Value = _session.Song.Speed;
-            _funkSpeed.Value = _session.Song.FunkSpeed ?? _session.Song.Speed;
+            LoadSpeed();
             RefreshInstrumentNames();
             ShowSelectedInstrument();
             RefreshStatus();
