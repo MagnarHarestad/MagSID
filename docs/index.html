@@ -15,18 +15,18 @@
 <main class="wrap">
   <section class="hero">
     <img src="logo.png" alt="MagSID logo">
-    <h1>MagSID Editor <span id="version">v1.71</span></h1>
+    <h1>MagSID Editor <span id="version">v1.72</span></h1>
     <p class="released">Release date: <time id="released" datetime="2026-10-30">2026-10-30</time></p>
     <p>A tracker for Commodore 64 music, for Windows, macOS and Linux. Write in a classic tracker grid or a DAW-style piano roll,
       hear it through reSID, and export a <code>.sid</code> that plays exactly the same on the real machine.</p>
     <div class="download">
-      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-windows-x64.zip">Download for Windows</a>
+      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.72/MagSID-1.72-windows-x64.zip">Download for Windows</a>
       <small>Free and open source · Windows 10/11, 64-bit · nothing else to install</small>
       <p class="also">Also for
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-macos-arm64.zip">macOS · Apple Silicon</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-macos-x64.zip">macOS · Intel</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-linux-x64.tar.gz">Linux · x64</a>
-        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.71">release notes</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.72/MagSID-1.72-macos-arm64.zip">macOS · Apple Silicon</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.72/MagSID-1.72-macos-x64.zip">macOS · Intel</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.72/MagSID-1.72-linux-x64.tar.gz">Linux · x64</a>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.72">release notes</a>
         <a class="plain" href="#mac">opening it on a Mac</a></p>
     </div>
   </section>
@@ -41,7 +41,7 @@
   <div class="grid">
     <div class="card"><div class="i">🎹</div><h3>Retro and DAW</h3><p>A classic tracker grid for typing fast, and an arrangement with a piano roll for seeing the whole song - drag clips between channels, split, glue and erase them. Both edit the same song at once.</p></div>
     <div class="card"><div class="i">⏺️</div><h3>Record from MIDI</h3><p>Play into the piano roll from a MIDI keyboard, with a one-bar pre-roll, an optional click, and punch-in between the locators. Hold a chord to make an arpeggio.</p></div>
-    <div class="card"><div class="i">💾</div><h3>Tiny player</h3><p>The C64 player is written in 6502 assembly and only carries the effects a song uses. A finished song, player included, is around 750-1250 bytes - and in the editor it plays through reSID, on a 6581 or an 8580, as the C64 will.</p></div>
+    <div class="card"><div class="i">💾</div><h3>Tiny player</h3><p>The C64 player is written in 6502 assembly and only carries the effects a song uses. A finished song, player included, is around 700-1150 bytes - and in the editor it plays through reSID, on a 6581 or an 8580, as the C64 will.</p></div>
     <div class="card"><div class="i">🎯</div><h3>Export to .SID file</h3><p>At any load address. The editor builds the file itself, byte for byte what the assembler would make - no assembler or emulator needed.</p></div>
     <div class="card"><div class="i">📼</div><h3>Built-in SID player</h3><p>Open any <code>.sid</code> to play it, with a spectrum and a scope per voice, and save it as WAV, MP3 or FLAC. To see how a tune is built while it plays, there is <a href="https://magnarharestad.github.io/MagPlaySID/">MagPlaySID</a>.</p></div>
     <div class="card"><div class="i">🎼</div><h3>Import MIDI</h3><p>Turn a .mid file into a song the C64 way: bass and drums on channel 1, the chords read bar by bar as arpeggios, the lead on top - and each General MIDI sound mapped to an instrument from the demo songs, or one picked from the sound bank.</p></div>
@@ -64,11 +64,12 @@
   <p class="lead">Code for an effect is only assembled when a song uses it.</p>
   <table class="sizes">
     <tr><th>Player build</th><th>Code size</th></tr>
-    <tr><td>No optional effects</td><td>462 bytes</td></tr>
-    <tr><td>With slides</td><td>533 bytes</td></tr>
-    <tr><td>With vibrato</td><td>574 bytes</td></tr>
-    <tr><td>With both</td><td>608 bytes</td></tr>
+    <tr><td>No optional effects</td><td>418 bytes</td></tr>
+    <tr><td>With slides</td><td>467 bytes</td></tr>
+    <tr><td>With vibrato</td><td>500 bytes</td></tr>
+    <tr><td>With both</td><td>526 bytes</td></tr>
     <tr><td>Soft hard restart, when used</td><td>+10 bytes</td></tr>
+    <tr><td>Vibrato, when two or more instruments have none</td><td>+4 bytes</td></tr>
   </table>
 
   <figure class="shot">
@@ -244,7 +245,7 @@ document.querySelectorAll('.video .player').forEach(link => link.addEventListene
   link.replaceWith(frame);
 }));
 
-// The version and release date under the logo follow the latest release; v1.71 and its date stand
+// The version and release date under the logo follow the latest release; v1.72 and its date stand
 // until GitHub answers, or if it does not.
 fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
   .then(response => response.ok ? response.json() : null)
