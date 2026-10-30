@@ -219,6 +219,7 @@ public sealed partial class MainWindow
             if (e.Key is Key.Enter or Key.Escape)
             {
                 EndRename(keep: e.Key == Key.Enter);
+                FocusSongView();
                 e.Handled = true;
             }
         };
@@ -235,21 +236,18 @@ public sealed partial class MainWindow
     }
 
     /// <summary>Opens a slot's name for typing - what follows adding one, so it can be named
-    /// straight away; F2 and a double-click do the same. A first letter typed replaces the name.</summary>
-    private void BeginRename(int number, string? typed = null)
+    /// straight away; a double-click and Rename on the right-click menu do the same.</summary>
+    private void BeginRename(int number)
     {
         if (_session.Song.Instruments.FirstOrDefault(i => i.Number == number) is not { } instrument)
             return;
 
         _renaming = instrument;
-        _rename.Text = typed ?? instrument.Name;
+        _rename.Text = instrument.Name;
         _rename.Margin = new Thickness(0, InstrumentHeaderHeight + (number - 1) * InstrumentRowHeight, 0, 0);
         _rename.IsVisible = true;
         _rename.Focus();
-        if (typed is null)
-            _rename.SelectAll();
-        else
-            _rename.CaretIndex = typed.Length;
+        _rename.SelectAll();
     }
 
     private void EndRename(bool keep)
@@ -266,7 +264,15 @@ public sealed partial class MainWindow
             _session.MarkDirty();
             RefreshInstrumentNames();
         }
-        _instruments.Focus();
+    }
+
+    /// <summary>The keyboard back to the song - the grid in Retro - so the note keys write notes.</summary>
+    private void FocusSongView()
+    {
+        if (_dawShowing)
+            _daw.Focus();
+        else
+            _grid.Focus();
     }
 
     private void WireInstrumentList()
@@ -299,15 +305,6 @@ public sealed partial class MainWindow
             }
         };
 
-        // Typing on a selected instrument names it, as in 1.64's table.
-        _instruments.TextInput += (_, e) =>
-        {
-            if (SelectedInstrument is { } instrument && !string.IsNullOrEmpty(e.Text) && !char.IsControl(e.Text[0]))
-            {
-                BeginRename(instrument.Number, e.Text);
-                e.Handled = true;
-            }
-        };
         _instruments.DoubleTapped += (_, e) =>
         {
             if (InstrumentIndexAt(e) is var index and >= 0 && InstrumentInSlot(index) is { } instrument)
@@ -322,6 +319,7 @@ public sealed partial class MainWindow
             {
                 MenuEntry("Add", AddInstrument, !InstrumentsFull),
                 MenuEntry("Copy", DuplicateInstrument, selected && !InstrumentsFull),
+                MenuEntry("Rename", () => BeginRename(SelectedInstrument!.Number), selected),
                 MenuEntry("Delete", DeleteInstrument, selected),
             };
         };
@@ -365,7 +363,19 @@ public sealed partial class MainWindow
             _dragIndex = index;
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        _instruments.AddHandler(PointerReleasedEvent, (_, _) => _dragIndex = -1, RoutingStrategies.Tunnel, handledEventsToo: true);
+        // Picking an instrument is a step in writing notes, not a move to the list: the keyboard
+        // goes straight back to the song, so the next notes are written with it. A double-click
+        // still renames - its second click opens the name, which takes the keyboard back.
+        _instruments.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            _dragIndex = -1;
+            if (e.InitialPressMouseButton == MouseButton.Left && _renaming is null && InstrumentInSlot(InstrumentIndexAt(e)) is not null)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_renaming is null)
+                        FocusSongView();
+                });
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     /// <summary>The row under the pointer, or -1.</summary>

@@ -132,8 +132,9 @@ public static class AboutDocument
              "so does clicking \"+ New instrument\" in the first empty slot or pressing Insert; the " +
              "arrow beside + adds one from the sound bank - the demo songs' piano, bass, strings, " +
              "synth lead and the rest - or from a file. The other two buttons duplicate and delete " +
-             "(Delete). A new instrument opens its name for typing; edit the Name column to rename " +
-             "later. Right-click still has Add, Copy and Delete. The editor below edits the selected " +
+             "(Delete). A new instrument opens its name for typing; double-click a name to rename it " +
+             "later. Clicking an instrument leaves the keyboard on the pattern, so the next notes are " +
+             "written with it. Right-click has Add, Copy, Rename and Delete. The editor below edits the selected " +
              "instrument directly. \"Open bank folder\" on the arrow shows where an instrument saved " +
              "as Piano.json, Bass.json... replaces that bank sound.\n\n" +
              $"{platform.Menu} → Save Instrument writes the selected instrument to a .json file, and Load " +
