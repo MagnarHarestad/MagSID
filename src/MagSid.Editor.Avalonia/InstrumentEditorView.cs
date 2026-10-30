@@ -65,12 +65,20 @@ internal sealed class InstrumentEditorView : DockPanel
 
     private readonly TextBox _attackDecay = Hex();
     private readonly TextBox _sustainRelease = Hex();
-    private readonly ToggleButton _noHardRestart = Toggle("No HR");
-    private readonly ToggleButton _softHardRestart = Toggle("Soft HR");
-    private readonly NumericUpDown _pulseWidth = new() { Minimum = 0, Maximum = 15, Width = 46, FormatString = "0", FontFamily = Mono, Foreground = MonoInk };
+    // Hard restart is one choice of three, so it is one control of three segments: On, Soft, Off.
+    private readonly ToggleButton _fullHardRestart = Segment("On", "Before the next note: the envelope is reset and the oscillator stopped - a clean, hard attack");
+    private readonly ToggleButton _softHardRestart = Segment("Soft", "Before the next note: the envelope is reset but the waveform kept - no click on a cut note");
+    private readonly ToggleButton _noHardRestart = Segment("Off", "No hard restart: the next note follows on, legato");
+    private readonly NumericUpDown _pulseWidth = new()
+    {
+        Minimum = 0, Maximum = 15, Width = 46, FormatString = "0", FontFamily = Mono, Foreground = MonoInk,
+        Padding = new Thickness(0),
+        HorizontalContentAlignment = HorizontalAlignment.Center,
+        VerticalContentAlignment = VerticalAlignment.Center,
+    };
     private readonly TextBox _pulseSweep = Hex();
-    private readonly ToggleButton _pulseContinuous = Toggle("Cont.");
-    private readonly ToggleButton _vibrator = Toggle("Vibrator");
+    private readonly ToggleButton _pulseContinuous = Switch("Cont.", "Continuous: the pulse sweep carries on from note to note instead of starting again");
+    private readonly ToggleButton _vibrator = Switch("Vibrator", "Vibrato on or off");
     private readonly TextBox _vibDelaySpeed = Hex();
     private readonly TextBox _vibDepth = Hex();
 
@@ -119,7 +127,12 @@ internal sealed class InstrumentEditorView : DockPanel
             {
                 Group("ENVELOPE", Caption("A/D"), _attackDecay, Caption("S/R"), _sustainRelease),
                 Group("PULSE", Caption("Width"), _pulseWidth, Caption("Sweep"), _pulseSweep, _pulseContinuous),
-                Group("HARD RESTART", _noHardRestart, _softHardRestart),
+                Group("HARD RESTART", new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(3, 0, 0, 0),
+                    Children = { _fullHardRestart, _softHardRestart, _noHardRestart },
+                }),
                 Group("VIBRATO", _vibrator, Caption("D/S"), _vibDelaySpeed, Caption("Depth"), _vibDepth),
             },
         };
@@ -186,8 +199,16 @@ internal sealed class InstrumentEditorView : DockPanel
 
         foreach (var box in new[] { _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
             box.LostFocus += (_, _) => Commit();
-        foreach (var toggle in new[] { _noHardRestart, _softHardRestart, _pulseContinuous })
-            toggle.IsCheckedChanged += (_, _) => Commit();
+        _pulseContinuous.IsCheckedChanged += (_, _) => Commit();
+        foreach (var segment in new[] { _fullHardRestart, _softHardRestart, _noHardRestart })
+        {
+            // A segment stays down when clicked again: one of the three is always the choice.
+            segment.Click += (_, _) =>
+            {
+                ShowHardRestart(segment == _noHardRestart, segment == _softHardRestart);
+                Commit();
+            };
+        }
         _vibrator.IsCheckedChanged += (_, _) =>
         {
             if (_loading)
@@ -232,8 +253,7 @@ internal sealed class InstrumentEditorView : DockPanel
 
             _attackDecay.Text = instrument.AttackDecay.ToString("x2");
             _sustainRelease.Text = instrument.SustainRelease.ToString("x2");
-            _noHardRestart.IsChecked = instrument.NoHardRestart;
-            _softHardRestart.IsChecked = instrument.SoftHardRestart;
+            ShowHardRestart(instrument.NoHardRestart, instrument.SoftHardRestart);
             _pulseWidth.Value = Math.Clamp(instrument.PulseWidth, 0, 15);
             // The raw byte, GoatTracker style, as A/D and S/R are: PulseSweep is a signed byte.
             _pulseSweep.Text = unchecked((byte)Math.Clamp(instrument.PulseSweep, -128, 127)).ToString("x2");
@@ -570,8 +590,11 @@ internal sealed class InstrumentEditorView : DockPanel
             instrument.Waveform = waveform;
             instrument.AttackDecay = attackDecay;
             instrument.SustainRelease = sustainRelease;
+            // Off keeps the instrument's Soft as it was: with no restart it changes nothing, and
+            // the file is left as written.
             instrument.NoHardRestart = _noHardRestart.IsChecked == true;
-            instrument.SoftHardRestart = _softHardRestart.IsChecked == true;
+            if (instrument.NoHardRestart == false)
+                instrument.SoftHardRestart = _softHardRestart.IsChecked == true;
             instrument.PulseWidth = (int)(_pulseWidth.Value ?? 0);
             instrument.PulseSweep = unchecked((sbyte)sweep);
             instrument.PulseContinuous = _pulseContinuous.IsChecked == true;
@@ -770,15 +793,50 @@ internal sealed class InstrumentEditorView : DockPanel
         Classes = { "cell" },
     };
 
-    /// <summary>A button that stays down, as 1.64's flat check boxes drawn as buttons.</summary>
-    private static ToggleButton Toggle(string text) => new()
+    /// <summary>An on/off setting: a light and its name, lit and bright when on, a dim ring and
+    /// grey when off - so off reads as off, not as a button waiting to be pressed.</summary>
+    private static ToggleButton Switch(string text, string tip)
     {
-        Content = text,
-        Padding = new Thickness(6, 1),
-        Margin = new Thickness(6, 0, 0, 0),
-        Background = EditorTheme.Background,
-        BorderBrush = Body,
-    };
+        var toggle = new ToggleButton
+        {
+            Margin = new Thickness(4, 0, 0, 0),
+            Classes = { "switch" },
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 5,
+                Children =
+                {
+                    new global::Avalonia.Controls.Shapes.Ellipse { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center },
+                    new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center },
+                },
+            },
+        };
+        ToolTip.SetTip(toggle, tip);
+        return toggle;
+    }
+
+    /// <summary>One of the hard restart's three segments, drawn joined to its neighbours.</summary>
+    private static ToggleButton Segment(string text, string tip)
+    {
+        var segment = new ToggleButton
+        {
+            Content = text,
+            Padding = new Thickness(8, 1),
+            Margin = new Thickness(0, 0, -1, 0),
+            Classes = { "segment" },
+        };
+        ToolTip.SetTip(segment, tip);
+        return segment;
+    }
+
+    /// <summary>Puts the hard restart's choice on its segments: Off wins, as it does in the player.</summary>
+    private void ShowHardRestart(bool off, bool soft)
+    {
+        _noHardRestart.IsChecked = off;
+        _softHardRestart.IsChecked = !off && soft;
+        _fullHardRestart.IsChecked = !off && !soft;
+    }
 
     private static TextBlock Caption(string text) => new()
     {

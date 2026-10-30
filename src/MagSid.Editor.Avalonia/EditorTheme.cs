@@ -119,6 +119,46 @@ internal static class EditorTheme
                 (ContentPresenter.ForegroundProperty, Title)));
         }
 
+        // On/off switches: no frame, a light that is lit when on. The name is grey when off.
+        app.Styles.Add(Of(typeof(ToggleButton), ".switch",
+            (TemplatedControl.BackgroundProperty, Brushes.Transparent),
+            (TemplatedControl.BorderBrushProperty, Brushes.Transparent),
+            (TemplatedControl.ForegroundProperty, Subtitle),
+            (TemplatedControl.PaddingProperty, new Thickness(4, 1, 5, 1))));
+        foreach (string state in new[] { ":pointerover", ":pressed", ":checked:pointerover", ":checked:pressed" })
+        {
+            app.Styles.Add(Part(typeof(ToggleButton), ".switch" + state, "PART_ContentPresenter",
+                (ContentPresenter.BackgroundProperty, ButtonHover),
+                (ContentPresenter.BorderBrushProperty, Brushes.Transparent),
+                (ContentPresenter.ForegroundProperty, Body)));
+        }
+        app.Styles.Add(Part(typeof(ToggleButton), ".switch:checked", "PART_ContentPresenter",
+            (ContentPresenter.BackgroundProperty, Brushes.Transparent),
+            (ContentPresenter.BorderBrushProperty, Brushes.Transparent),
+            (ContentPresenter.ForegroundProperty, Body)));
+        app.Styles.Add(new Style(x => x.OfType<ToggleButton>().Class("switch").Descendant().OfType<global::Avalonia.Controls.Shapes.Ellipse>())
+        {
+            Setters =
+            {
+                new Setter(global::Avalonia.Controls.Shapes.Shape.StrokeProperty, Subtitle),
+                new Setter(global::Avalonia.Controls.Shapes.Shape.StrokeThicknessProperty, 1.0),
+                new Setter(global::Avalonia.Controls.Shapes.Shape.FillProperty, Brushes.Transparent),
+            },
+        });
+        app.Styles.Add(new Style(x => x.OfType<ToggleButton>().Class("switch").Class(":checked").Descendant().OfType<global::Avalonia.Controls.Shapes.Ellipse>())
+        {
+            Setters =
+            {
+                new Setter(global::Avalonia.Controls.Shapes.Shape.StrokeProperty, Title),
+                new Setter(global::Avalonia.Controls.Shapes.Shape.FillProperty, Title),
+            },
+        });
+
+        // A choice of segments: the ones not chosen are quiet - grey text in a dim frame.
+        app.Styles.Add(Of(typeof(ToggleButton), ".segment",
+            ((AvaloniaProperty)TemplatedControl.BackgroundProperty, (object)Field),
+            (TemplatedControl.ForegroundProperty, Subtitle)));
+
         // Text fields: a dark box with a thin border, brighter where the caret is.
         app.Styles.Add(Of(typeof(TextBox), "",
             (TemplatedControl.BackgroundProperty, Field),
@@ -161,6 +201,7 @@ internal static class EditorTheme
             (TemplatedControl.BorderBrushProperty, Border),
             (TemplatedControl.CornerRadiusProperty, new CornerRadius(0)),
             (TemplatedControl.PaddingProperty, new Thickness(3, 0, 0, 0)),
+            (NumericUpDown.VerticalContentAlignmentProperty, VerticalAlignment.Center),
             (Layoutable.MinHeightProperty, 0.0),
             (Layoutable.HeightProperty, 20.0)));
         // Fluent's template fixes its arrows' width, so the spinner gets a template of its own:
@@ -302,10 +343,12 @@ internal static class EditorTheme
         return style;
     }
 
+    /// <summary>Adds <paramref name="state"/>'s classes: ".switch:checked" is the class "switch"
+    /// and the pseudo-class ":checked".</summary>
     private static Selector Select(Selector selector, string state)
     {
-        foreach (string pseudo in state.Split(':', StringSplitOptions.RemoveEmptyEntries))
-            selector = selector.Class(":" + pseudo);
+        foreach (System.Text.RegularExpressions.Match part in System.Text.RegularExpressions.Regex.Matches(state, @"([.:])([^.:]+)"))
+            selector = selector.Class(part.Groups[1].Value == ":" ? ":" + part.Groups[2].Value : part.Groups[2].Value);
         return selector;
     }
 }
