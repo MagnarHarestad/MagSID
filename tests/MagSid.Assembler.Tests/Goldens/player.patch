@@ -172,7 +172,7 @@
  		lda wt_data,y
  		beq .adsr                              ; $00 = hold on the current waveform
  		ldy SID_channel_offset,x
-@@ -305,92 +305,74 @@
+@@ -305,92 +305,78 @@
  		; expressible.
  		ldy voice_arp_pos,x
  		if def v_freqmod
@@ -299,6 +299,11 @@
 -		pla
 -		jmp .fmwrite
 -.vibrun:
++		ldy voice_inst,x
++		if def v_vib_guard
++		cpy #v_vib_count                       ; instruments with vibrato come first: the tables
++		bcs Voice_FmWrite                      ; stop there, so the rest have to stay out of them
++		endif
 +		dec voice_vib_delay,x                  ; counts down to 0 and stays there: the inc puts
 +		bpl Voice_FmWrite                      ; back what going past 0 took off
 +		inc voice_vib_delay,x
@@ -306,8 +311,7 @@
 -		; the carry - set by the compare exactly when dir is $ff - supplies the +1 that turns
 -		; ~depth into -depth; dir itself is the sign extension for the high byte.
 +		; the carry - bit 7 of dir, out of the asl - supplies the +1 that turns ~depth into
-+		; -depth; dir itself is the sign extension for the high byte. A depth of 0 adds nothing.
-+		ldy voice_inst,x
++		; -depth; dir itself is the sign extension for the high byte.
  		lda voice_vib_dir,x
 -		cmp #1
 -		pla
@@ -316,7 +320,7 @@
  		eor voice_vib_dir,x
  		adc voice_off_lo,x
  		sta voice_off_lo,x
-@@ -398,26 +380,23 @@
+@@ -398,26 +384,23 @@
  		adc voice_off_hi,x
  		sta voice_off_hi,x
  		dec voice_vib_cnt,x
@@ -347,7 +351,7 @@
  		rts
  		endif
  
-@@ -529,7 +508,17 @@
+@@ -529,7 +512,17 @@
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
@@ -365,7 +369,7 @@
  
  ; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
  ; below is this routine's own.
-@@ -557,10 +546,11 @@
+@@ -557,10 +550,11 @@
  		rts
  
  .fetch:
@@ -381,7 +385,7 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +562,12 @@
+@@ -572,7 +566,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
@@ -394,7 +398,7 @@
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -621,6 +616,15 @@
+@@ -621,6 +620,15 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
@@ -440,7 +444,33 @@
                      GetNoteID(note)
                  end
              end
-@@ -535,6 +547,7 @@
+@@ -509,6 +521,25 @@
+     end
+ end
+ 
++-- The player's own numbering: instruments with vibrato first, the rest after, each in the song's
++-- order - so the vibrato tables only need entries for the first ones. Only the per-instrument
++-- tables and the stream's $Cx follow it; the pools and the note dictionary keep the song's order.
++local inst_index = {}
++do
++    local n = 0
++    for id = 1, instrument_count do
++        if instruments[id].vib then inst_index[id] = n; n = n + 1 end
++    end
++    for id = 1, instrument_count do
++        if not instruments[id].vib then inst_index[id] = n; n = n + 1 end
++    end
++end
++local function InPlayerOrder(values)
++    local ordered = {}
++    for id = 1, instrument_count do ordered[inst_index[id] + 1] = values[id] end
++    return ordered
++end
++
+ -- Arpeggio steps come out of the same dictionary as the patterns, which is the whole reason
+ -- they are one byte each. Registered after the patterns so pattern encoding is unaffected by
+ -- whether an instrument happens to arpeggiate.
+@@ -535,6 +566,7 @@
  -- of Code\musicplayer.s). LS marks the loop anchor, LE emits $D2 + count + offset, $00 ends.
  
  local CMD_DUR, CMD_INST, CMD_OFF, CMD_WAIT, CMD_LOOP_END = 0x80, 0xC0, 0xD0, 0xD1, 0xD2
@@ -448,7 +478,25 @@
  local MAX_DURATION, MAX_INSTRUMENT = 64, 16
  
  local ptr_rows = {}
-@@ -672,6 +685,11 @@
+@@ -576,7 +608,7 @@
+         if inst ~= nil and inst ~= cur_inst then
+             assert(inst >= 1 and inst <= MAX_INSTRUMENT,
+                 "PAT" .. NN .. ": instrument " .. inst .. " is out of range (1.." .. MAX_INSTRUMENT .. ")")
+-            Emit(CMD_INST + inst - 1)
++            Emit(CMD_INST + inst_index[inst])
+             cur_inst = inst
+         end
+         if dur ~= nil and dur ~= cur_dur then
+@@ -611,7 +643,7 @@
+             -- re-establishes them; nothing is inserted when the body left the state alone.
+             local fixup = {}
+             if ls_inst ~= nil and cur_inst ~= ls_inst then
+-                fixup[#fixup + 1] = CMD_INST + ls_inst - 1
++                fixup[#fixup + 1] = CMD_INST + inst_index[ls_inst]
+             end
+             if ls_dur ~= nil and cur_dur ~= ls_dur then
+                 fixup[#fixup + 1] = CMD_DUR + ls_dur - 1
+@@ -672,6 +704,11 @@
                      -- setting alone is exactly right and costs nothing.
                      SetState(nil, duration)
                      Emit(CMD_OFF)
@@ -460,19 +508,57 @@
                  else
                      assert(instruments[row.inst] ~= nil,
                          "PAT" .. NN .. ": instrument " .. tostring(row.inst) .. " is not defined in INSTRUMENTS")
-@@ -871,7 +889,11 @@
-     EmitByteTable("ad_table:", ad_values)
-     EmitByteTable("sr_table:", sr_values)
-     EmitByteTable("wt_start:", wt_values)
+@@ -868,27 +905,38 @@
+         pw_add_values[id]  = string.format("$%02x", add % 256)
+     end
+ 
+-    EmitByteTable("ad_table:", ad_values)
+-    EmitByteTable("sr_table:", sr_values)
+-    EmitByteTable("wt_start:", wt_values)
++    EmitByteTable("ad_table:", InPlayerOrder(ad_values))
++    EmitByteTable("sr_table:", InPlayerOrder(sr_values))
++    EmitByteTable("wt_start:", InPlayerOrder(wt_values))
 +    -- The pool's last byte is always the $00 ending the last program: wt_hold, where a note off
 +    -- parks voice_wt_pos so the release runs on without the wavetable re-gating.
 +    local wt_last = table.remove(wt_pool)
      EmitByteTable("wt_data:", wt_pool)
+-    EmitByteTable("arp_start:", arp_values)
 +    EmitByteTable("wt_hold:", { wt_last })
-     EmitByteTable("arp_start:", arp_values)
++    EmitByteTable("arp_start:", InPlayerOrder(arp_values))
      EmitByteTable("arp_data:", arp_pool)
-     EmitByteTable("flt_start:", flt_values)
-@@ -898,20 +920,6 @@
+-    EmitByteTable("flt_start:", flt_values)
++    EmitByteTable("flt_start:", InPlayerOrder(flt_values))
+     EmitByteTable("flt_data:", flt_pool)
+-    EmitByteTable("pw_init:", pw_init_values)
+-    EmitByteTable("pw_add:", pw_add_values)
++    EmitByteTable("pw_init:", InPlayerOrder(pw_init_values))
++    EmitByteTable("pw_add:", InPlayerOrder(pw_add_values))
+ 
+     -- Vibrato tables, only for a song that uses it - the player's own vibrato code is gated on
+     -- the same v_vibrato, so a song without it pays nothing either side. Two flat bytes per
+-    -- instrument: delay/speed packed in one, depth in the other.
++    -- instrument that has it, which come first: delay/speed packed in one, depth in the other.
+     local any_vibrato = false
+     local vib_ds_values, vib_depth_values = {}, {}
+     for id = 1, instrument_count do
+         local vib = instruments[id].vib
+-        if vib then any_vibrato = true end
+-        vib_ds_values[id]    = string.format("$%02x", vib and vib.ds or 0)
+-        vib_depth_values[id] = string.format("$%02x", vib and vib.depth or 0)
++        if vib then
++            any_vibrato = true
++            vib_ds_values[inst_index[id] + 1]    = string.format("$%02x", vib.ds)
++            vib_depth_values[inst_index[id] + 1] = string.format("$%02x", vib.depth)
++        end
++    end
++    -- One instrument without vibrato: cheaper to give it a depth of 0 than to compare.
++    if #vib_ds_values == instrument_count - 1 then
++        vib_ds_values[instrument_count] = "$00"
++        vib_depth_values[instrument_count] = "$00"
+     end
+     assert(any_vibrato == (v_vibrato_scan == true),
+         "vibrato scan disagrees with the parsed INSTRUMENTS - v_songfile must be set before " ..
+@@ -898,20 +946,6 @@
          EmitByteTable("vib_depth:", vib_depth_values)
      end
  
@@ -493,19 +579,26 @@
  end
  
  -- Song-order resolution per channel: a list of pattern numbers, optionally followed by
-@@ -1053,6 +1061,7 @@
+@@ -1053,6 +1087,8 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
++    local instruments_scan, vibrato_scan = 0, 0
 +    local funk = nil
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1064,8 +1073,10 @@
+@@ -1063,14 +1099,25 @@
+             elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then
-                 if t:upper():match(",%s*VIB%s") then v_vibrato_scan = true end
+-                if t:upper():match(",%s*VIB%s") then v_vibrato_scan = true end
 -                if t:upper():match(",%s*SLIDE%s") then v_slide_scan = true end
++                instruments_scan = instruments_scan + 1
++                if t:upper():match(",%s*VIB%s") then
++                    v_vibrato_scan = true
++                    vibrato_scan = vibrato_scan + 1
++                end
              end
 +            if not in_instruments and t:match('^"[12]%x%x"') then v_slide_scan = true end
 +            -- Funk speed: a second speed the ticks alternate with. Absent, the song keeps one.
@@ -513,7 +606,17 @@
          end
          f:close()
      end
-@@ -1078,4 +1089,7 @@
+     if v_vibrato_scan then
+         asm("var v_vibrato = 1")
++        -- The compare costs 4 bytes, so 2 instruments without vibrato are where it starts to pay.
++        if instruments_scan - vibrato_scan >= 2 then
++            asm("var v_vib_guard = 1")
++            asm("var v_vib_count = " .. vibrato_scan)
++        end
+     end
+     if v_slide_scan then
+         asm("var v_slide = 1")
+@@ -1078,4 +1125,7 @@
      if v_vibrato_scan or v_slide_scan then
          asm("var v_freqmod = 1")
      end

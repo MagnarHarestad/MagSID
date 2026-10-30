@@ -107,3 +107,4 @@ tay Implied A8
 tya Implied 98
 sec Implied 38
 bit Absolute 2C
+cpy Immediate C0

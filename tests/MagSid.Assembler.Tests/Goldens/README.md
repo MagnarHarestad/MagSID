@@ -85,6 +85,16 @@ falls out of the note program, whose `.byte $2c` now serves every build, and the
 target of 0 is refused by the song tables, so the loop always branches. Old 26 rebuilt first, then 30000 frames
 of old and new: the same writes and the same SID state.
 
+The images with vibrato, here and in `GateOff\`, were reassembled again on **2026-10-30**, when the vibrato
+tables stopped carrying instruments that have none. Instruments with vibrato now come first in the player's
+numbering (`inst_index` in `Tables.s`, `InstrumentTables.PlayerOrder` here), which only the per-instrument
+tables and the stream's `$Cx` follow; the pools and the note dictionary keep the song's order, so nothing else
+moves. With two or more instruments left over, `vib_ds` and `vib_depth` stop after the ones that have it and
+`.freqmod` starts `ldy voice_inst,x / cpy #v_vib_count / bcs Voice_FmWrite`, assembled only then. One left over
+keeps an entry of `$00` instead: two table bytes against the compare's four. `cpy Immediate C0` joined
+`opcodes.txt`; these images carry it, which is c6510's word for it. Images without vibrato came out byte for
+byte as before, and old and new held the same SID state after every one of 30000 frames, on every song.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
 the release, funk speed and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.

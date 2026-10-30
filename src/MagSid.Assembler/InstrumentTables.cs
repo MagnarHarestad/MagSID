@@ -1,3 +1,4 @@
+using MagSid.Core;
 using MagSid.Core.Model;
 
 namespace MagSid.Assembler;
@@ -13,8 +14,8 @@ namespace MagSid.Assembler;
 /// </summary>
 public sealed class InstrumentTables
 {
-    /// <summary>One byte per instrument, indexed by instrument number - 1. The pattern stream picks
-    /// an instrument with $C0..$CF, so these are 0-based with no dummy entry.</summary>
+    /// <summary>One byte per instrument, indexed by <see cref="PlayerOrder"/>. The pattern stream
+    /// picks an instrument with $C0..$CF, so these are 0-based with no dummy entry.</summary>
     public required byte[] AttackDecay { get; init; }
 
     public required byte[] SustainRelease { get; init; }
@@ -28,10 +29,27 @@ public sealed class InstrumentTables
     public required byte[] ArpeggioPool { get; init; }
     public required byte[] FilterPool { get; init; }
 
-    /// <summary>Emitted only for a song that uses the effect, matching the player's own gates.</summary>
+    /// <summary>Emitted only for a song that uses the effect, matching the player's own gates.
+    /// Only for the instruments that have it, which come first - see <see cref="SongSizeCalculator"/>
+    /// for when the one instrument left over keeps an entry of 0.</summary>
     public required byte[] VibratoDelaySpeed { get; init; }
 
     public required byte[] VibratoDepth { get; init; }
+
+    /// <summary>
+    /// The player's own numbering: instruments with vibrato first, the rest after, each in the
+    /// song's order - instrument number to the 0-based index the stream's $Cx carries. That is what
+    /// lets the vibrato tables stop after the instruments that have it. Only the per-instrument
+    /// tables and $Cx follow it; the pools and the note dictionary keep the song's order.
+    /// </summary>
+    public static Dictionary<int, int> PlayerOrder(Song song)
+    {
+        var ordered = song.Instruments.OrderBy(i => i.Number).ToList();
+        var index = new Dictionary<int, int>();
+        foreach (var instrument in ordered.Where(i => i.HasVibrato).Concat(ordered.Where(i => !i.HasVibrato)))
+            index[instrument.Number] = index.Count;
+        return index;
+    }
 
     public static InstrumentTables Build(Song song, NoteDictionary notes)
     {
@@ -40,20 +58,32 @@ public sealed class InstrumentTables
         var arpeggio = BuildArpeggioPool(instruments, notes);
         var filter = BuildFilterPool(instruments);
 
+        var order = PlayerOrder(song);
+        byte[] InPlayerOrder(Func<int, byte> value)
+        {
+            var ordered = new byte[instruments.Count];
+            for (int i = 0; i < instruments.Count; i++)
+                ordered[order[instruments[i].Number]] = value(i);
+            return ordered;
+        }
+
+        int vibratoEntries = SongSizeCalculator.VibratoTableEntries(song);
+
         return new InstrumentTables
         {
-            AttackDecay = instruments.Select(i => i.AttackDecay).ToArray(),
-            SustainRelease = instruments.Select(i => i.SustainRelease).ToArray(),
-            WavetableStart = wavetable.Starts,
+            AttackDecay = InPlayerOrder(i => instruments[i].AttackDecay),
+            SustainRelease = InPlayerOrder(i => instruments[i].SustainRelease),
+            WavetableStart = InPlayerOrder(i => wavetable.Starts[i]),
             WavetablePool = wavetable.Pool,
-            ArpeggioStart = arpeggio.Starts,
+            ArpeggioStart = InPlayerOrder(i => arpeggio.Starts[i]),
             ArpeggioPool = arpeggio.Pool,
-            FilterStart = filter.Starts,
+            FilterStart = InPlayerOrder(i => filter.Starts[i]),
             FilterPool = filter.Pool,
-            PulseInit = instruments.Select(PulseInitByte).ToArray(),
-            PulseAdd = instruments.Select(i => (byte)(i.PulseSweep & 0xFF)).ToArray(),
-            VibratoDelaySpeed = instruments.Select(i => i.HasVibrato ? i.VibratoDelaySpeed : (byte)0).ToArray(),
-            VibratoDepth = instruments.Select(i => i.VibratoDepth).ToArray(),
+            PulseInit = InPlayerOrder(i => PulseInitByte(instruments[i])),
+            PulseAdd = InPlayerOrder(i => (byte)(instruments[i].PulseSweep & 0xFF)),
+            VibratoDelaySpeed = InPlayerOrder(i => instruments[i].HasVibrato ? instruments[i].VibratoDelaySpeed : (byte)0)
+                .Take(vibratoEntries).ToArray(),
+            VibratoDepth = InPlayerOrder(i => instruments[i].VibratoDepth).Take(vibratoEntries).ToArray(),
         };
     }
 

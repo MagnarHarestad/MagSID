@@ -27,8 +27,11 @@ public static class PatternEncoder
     /// <summary>A note costs one byte and carries whatever instrument and duration are already
     /// current, so only a change emits a command; a run of "..." rows folds into the preceding
     /// note's duration; and LE splices the anchor's state back in when the body changed it.</summary>
-    public static byte[] Encode(Pattern pattern, NoteDictionary notes)
+    public static byte[] Encode(Pattern pattern, NoteDictionary notes, IReadOnlyDictionary<int, int>? instrumentOrder = null)
     {
+        // The player's own numbering, from InstrumentTables.PlayerOrder; the song's without one.
+        int IndexOf(int instrument) => instrumentOrder is null ? instrument - 1 : instrumentOrder[instrument];
+
         var rows = pattern.Rows;
         var stream = new List<byte>();
 
@@ -53,7 +56,7 @@ public static class PatternEncoder
                         $"PAT{pattern.Number:00}: instrument {inst} is out of range (1..{MaxInstrument}).");
                 }
 
-                stream.Add((byte)(CmdInstrument + inst.Value - 1));
+                stream.Add((byte)(CmdInstrument + IndexOf(inst.Value)));
                 curInst = inst;
             }
 
@@ -101,7 +104,7 @@ public static class PatternEncoder
                     // the anchor so every pass re-establishes them.
                     var fixup = new List<byte>();
                     if (lsInst is not null && curInst != lsInst)
-                        fixup.Add((byte)(CmdInstrument + lsInst.Value - 1));
+                        fixup.Add((byte)(CmdInstrument + IndexOf(lsInst.Value)));
                     if (lsDur is not null && curDur != lsDur)
                         fixup.Add((byte)(CmdDuration + lsDur.Value - 1));
                     for (int i = 0; i < fixup.Count; i++)

@@ -38,6 +38,11 @@ public sealed record PlayerParameters(int SongSpeed, int OrderStart1, int OrderS
     /// <summary>v_Song_Funk: the speed every second tick has, with PlayerFeatures.Funk.</summary>
     public int FunkSpeed { get; init; }
 
+    /// <summary>v_vib_count: instruments with vibrato come first and the tables stop after them, so
+    /// the player compares against this. Null when the tables go on to the end - see
+    /// SongSizeCalculator.ComparesVibrato.</summary>
+    public int? VibratoCompare { get; init; }
+
     /// <summary>v_channels. Three throughout this project; named rather than inlined because the
     /// assembly writes "ldx #v_channels-1" and reading 2 there invites the off-by-one.</summary>
     public int Channels { get; init; } = 3;
@@ -115,7 +120,7 @@ public static class PlayerProgram
         EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff, sidChannelOffset);
         EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder, voiceOrderPos);
         EmitVoicePlayCurrent(asm, tables, features, zp, voicePlayCurrent, voiceNoteOff, voiceSetFreq, sidChannelOffset);
-        EmitVoiceAutomation(asm, tables, features, zp, voiceAutomation, voiceSetFreq, sidChannelOffset);
+        EmitVoiceAutomation(asm, tables, parameters, features, zp, voiceAutomation, voiceSetFreq, sidChannelOffset);
         EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder);
         EmitPlayerData(asm, parameters, voiceOrderPos, sidChannelOffset);
         EmitMusicPlay(asm, tables, parameters, features, zp, musicPlay, voiceAutomation, voiceTick, onBeatPlaySong);
@@ -303,7 +308,7 @@ public static class PlayerProgram
     /// attack transient needs frame resolution. Pool offset 0 is a dummy $00, so voice_wt_pos = 0
     /// doubles as "nothing played yet". A released note sits on wt_hold and runs on.</summary>
     private static void EmitVoiceAutomation(
-        Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
+        Emitter6502 asm, SongTableLabels tables, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp,
         Label entry, Label voiceSetFreq, Label sidChannelOffset)
     {
         var idle = asm.NewLabel(".idle");
@@ -391,7 +396,7 @@ public static class PlayerProgram
         if (features.FreqMod)
         {
             asm.Sec();                              // a step: on through the offset, unlike a new note
-            EmitFreqMod(asm, tables, features, zp, voiceSetFreq, freqMod, sidChannelOffset);
+            EmitFreqMod(asm, tables, parameters, features, zp, voiceSetFreq, freqMod, sidChannelOffset);
         }
         else
         {
@@ -420,11 +425,11 @@ public static class PlayerProgram
     /// every frame. Both move one signed 16-bit offset, which is added back on top of the note and
     /// written every frame - that is what keeps a slide that "100" stopped where it got to. Slide
     /// adds the rate a pattern's slide row left in voice_slide a frame, vibrato traces a triangle
-    /// from vib_ds (delay/speed) and vib_depth. A rate or a depth of 0 adds nothing, so neither is
-    /// tested for: that would only save cycles, and this player spends those for bytes.
+    /// from vib_ds (delay/speed) and vib_depth. A rate of 0 adds nothing, so it is not tested for:
+    /// that would only save cycles, and this player spends those for bytes.
     /// </summary>
     private static void EmitFreqMod(
-        Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
+        Emitter6502 asm, SongTableLabels tables, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp,
         Label voiceSetFreq, Label freqMod, Label sidChannelOffset)
     {
         var fmWrite = asm.NewLabel(".fmwrite");
@@ -457,6 +462,15 @@ public static class PlayerProgram
 
         if (features.Vibrato)
         {
+            asm.Ldy(MemX(zp.VoiceInst));
+
+            // Instruments with vibrato come first: the tables stop there, so the rest stay out.
+            if (parameters.VibratoCompare is { } count)
+            {
+                asm.Cpy(Imm(count));
+                asm.Bcs(fmWrite);
+            }
+
             // Counts down to 0 and stays there: the inc puts back what going past 0 took off.
             asm.Dec(MemX(zp.VoiceVibDelay));
             asm.Bpl(fmWrite);
@@ -465,7 +479,6 @@ public static class PlayerProgram
             // offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
             // the carry - bit 7 of dir, out of the asl - supplies the +1 that turns ~depth into
             // -depth; dir itself is the sign extension for the high byte.
-            asm.Ldy(MemX(zp.VoiceInst));
             asm.Lda(MemX(zp.VoiceVibDir));
             asm.Asl();
             asm.Lda(MemY(tables.VibDepth!));

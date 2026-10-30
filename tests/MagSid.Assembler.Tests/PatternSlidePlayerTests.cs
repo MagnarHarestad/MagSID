@@ -105,18 +105,84 @@ public class PatternSlidePlayerTests
         END:
         """;
 
+    /// <summary>The vibrato tables' other two shapes: one instrument without vibrato, which keeps an
+    /// entry of 0 and no compare, and none without. Numbered so the one without comes first in the
+    /// song and last in the player.</summary>
+    private const string VibratoOneWithout = """
+        var v_Song_Speed = 1
+
+        INSTRUMENTS:
+        01, $11, $09, $a0, ARP "C-5" "E-5"
+        02, $21, $09, $a0, VIB $00 $10
+        03, $41, $09, $a0, VIB $11 $08
+        END:
+
+        PAT01:
+        "C-4", 01
+        "...", 00
+        "E-4", 02
+        "...", 00
+        "G-3", 03
+        "...", 00
+        END:
+
+        ORDER_CH1:
+        1
+        END:
+
+        ORDER_CH2:
+        1
+        END:
+
+        ORDER_CH3:
+        1
+        END:
+        """;
+
+    private const string VibratoAll = """
+        var v_Song_Speed = 1
+
+        INSTRUMENTS:
+        01, $21, $09, $a0, VIB $00 $10
+        02, $41, $09, $a0, VIB $11 $08
+        END:
+
+        PAT01:
+        "C-4", 01
+        "...", 00
+        "E-4", 02
+        "...", 00
+        END:
+
+        ORDER_CH1:
+        1
+        END:
+
+        ORDER_CH2:
+        1
+        END:
+
+        ORDER_CH3:
+        1
+        END:
+        """;
+
     public static TheoryData<string> Songs => new()
     {
         "fixture:slide_only.s",
         "fixture:slide_and_vib.s",
         "mixed",
         "vibrato",
+        "vibrato, one without",
+        "vibrato, all",
     };
 
     private static Core.Model.Song Load(string which) => which switch
     {
         "mixed" => PatternsFileReader.Parse(Mixed),
         "vibrato" => PatternsFileReader.Parse(VibratoOnly),
+        "vibrato, one without" => PatternsFileReader.Parse(VibratoOneWithout),
+        "vibrato, all" => PatternsFileReader.Parse(VibratoAll),
         _ => PatternsFileReader.Read(FixturePath(which["fixture:".Length..])),
     };
 

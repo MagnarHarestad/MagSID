@@ -290,19 +290,20 @@ public sealed class VoiceEngine
 
         _freqOffset = (_freqOffset + _slideRate) & 0xFFFF;
 
-        // As the player, this runs for every instrument: a depth of 0 adds nothing, and the
-        // counters of an instrument that has none are not read until the next note arms them.
-        if (_vibDelay > 0)
+        if (instrument.VibratoDepth != 0)
         {
-            _vibDelay--;
-        }
-        else
-        {
-            _freqOffset = (_freqOffset + (_vibDown ? -instrument.VibratoDepth : instrument.VibratoDepth)) & 0xFFFF;
-            if (--_vibCount < 0)
+            if (_vibDelay > 0)
             {
-                _vibDown = !_vibDown;
-                _vibCount = instrument.VibratoDelaySpeed & 0x0F;
+                _vibDelay--;
+            }
+            else
+            {
+                _freqOffset = (_freqOffset + (_vibDown ? -instrument.VibratoDepth : instrument.VibratoDepth)) & 0xFFFF;
+                if (--_vibCount < 0)
+                {
+                    _vibDown = !_vibDown;
+                    _vibCount = instrument.VibratoDelaySpeed & 0x0F;
+                }
             }
         }
 

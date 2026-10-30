@@ -102,6 +102,7 @@ public sealed class Emitter6502(int origin)
     public void Ora(Operand operand) => Emit("ora", operand);
     public void Eor(Operand operand) => Emit("eor", operand);
     public void Cmp(Operand operand) => Emit("cmp", operand);
+    public void Cpy(Operand operand) => Emit("cpy", operand);
 
     /// <summary>No operand means accumulator mode, exactly as a bare <c>asl</c> does in the
     /// source.</summary>

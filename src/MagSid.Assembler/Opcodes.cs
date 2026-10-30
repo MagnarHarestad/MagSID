@@ -132,6 +132,8 @@ internal static class Opcodes
         { ("jmp", AddressMode.Absolute), 0x4C },
         { ("jsr", AddressMode.Absolute), 0x20 },
 
+        { ("cpy", AddressMode.Immediate), 0xC0 },
+
         // The player only ever uses this for what it does to the program counter: its opcode alone
         // makes the next two bytes an operand, stepping over an instruction for one byte.
         { ("bit", AddressMode.Absolute), 0x2C },

@@ -159,6 +159,13 @@ internal sealed class PlayerCpu
                 SetNz(r);
                 break;
             }
+            case "cpy":
+            {
+                int r = _y - Read(ea);
+                _c = r >= 0;
+                SetNz(r);
+                break;
+            }
             case "asl":
                 if (mode == AddressMode.Accumulator) { _c = (_a & 0x80) != 0; _a = (_a << 1) & 0xFF; SetNz(_a); }
                 else { int v = Read(ea); _c = (v & 0x80) != 0; v = (v << 1) & 0xFF; Write(ea, v); SetNz(v); }

@@ -58,6 +58,25 @@ public static class SongSizeCalculator
     /// <summary>Funk speed's reload (lda/eor/sta/eor/sta) in place of move8's lda/sta.</summary>
     private const int FunkBytes = 6;
 
+    /// <summary>The cpy/bcs that keeps instruments without vibrato out of the vibrato tables.</summary>
+    private const int VibratoCompareBytes = 4;
+
+    /// <summary>
+    /// Instruments with vibrato come first in the player's numbering, so the vibrato tables can stop
+    /// after them - if the player then compares, to keep the rest out. Two table bytes an instrument
+    /// against the compare's four: from two instruments without vibrato it pays. One gets an entry of
+    /// 0 instead, whose depth adds nothing.
+    /// </summary>
+    public static bool ComparesVibrato(Song song) =>
+        song.Instruments.Any(i => i.HasVibrato)
+        && song.Instruments.Count(i => !i.HasVibrato) >= 2;
+
+    /// <summary>How long vib_ds and vib_depth each are.</summary>
+    public static int VibratoTableEntries(Song song) =>
+        !song.Instruments.Any(i => i.HasVibrato) ? 0
+        : ComparesVibrato(song) ? song.Instruments.Count(i => i.HasVibrato)
+        : song.Instruments.Count;
+
     private const int CmdDuration = 0x80;
     private const int CmdInstrument = 0xC0;
     private const int CmdNoteOff = 0xD0;
@@ -88,12 +107,14 @@ public static class SongSizeCalculator
         if (song.HasFunk)
             player += FunkBytes;
 
+        if (ComparesVibrato(song))
+            player += VibratoCompareBytes;
+
         int patternBytes = song.Patterns.Sum(p => EncodedLength(p.Rows));
 
         // ad, sr, wt_start, arp_start, flt_start, pw_init, pw_add - one byte each per
         // instrument, plus the two vibrato tables when those are in play.
         int instrumentCount = song.Instruments.Count;
-        int perInstrumentTables = 7 + (anyVibrato ? 2 : 0);
 
         return new SongSize(
             PlayerBytes: player,
@@ -101,7 +122,7 @@ public static class SongSizeCalculator
             // tbl_rows_lo and tbl_rows_hi, each carrying a dummy entry 0 so a 1-based pattern
             // number indexes them as it stands.
             PatternPointerBytes: 2 * (song.Patterns.Count + 1),
-            InstrumentTableBytes: perInstrumentTables * instrumentCount,
+            InstrumentTableBytes: 7 * instrumentCount + 2 * VibratoTableEntries(song),
             WavetablePoolBytes: WavetablePoolLength(song),
             ArpeggioPoolBytes: ArpeggioPoolLength(song),
             FilterPoolBytes: FilterPoolLength(song),

@@ -27,6 +27,7 @@ public static class SongImageBuilder
 
         var notes = NoteDictionary.Build(song);
         var instrumentTables = InstrumentTables.Build(song, notes);
+        var instrumentOrder = InstrumentTables.PlayerOrder(song);
         var order = SongOrderTable.Build(song);
         var patterns = song.Patterns.OrderBy(p => p.Number).ToList();
         RequireContiguous(patterns, song.Instruments);
@@ -59,7 +60,13 @@ public static class SongImageBuilder
 
         PlayerProgram.Emit(
             asm, tables,
-            new PlayerParameters(song.Speed, order.Start1, order.Start2, order.Start3) { FunkSpeed = song.FunkSpeed ?? song.Speed },
+            new PlayerParameters(song.Speed, order.Start1, order.Start2, order.Start3)
+            {
+                FunkSpeed = song.FunkSpeed ?? song.Speed,
+                VibratoCompare = Core.SongSizeCalculator.ComparesVibrato(song)
+                    ? song.Instruments.Count(i => i.HasVibrato)
+                    : null,
+            },
             features, new ZeroPageLayout(features));
 
         // --- song data, in the order a real build puts it ---
@@ -67,7 +74,7 @@ public static class SongImageBuilder
         for (int i = 0; i < patterns.Count; i++)
         {
             asm.Define(patternLabels[i]);
-            asm.Bytes(PatternEncoder.Encode(patterns[i], notes));
+            asm.Bytes(PatternEncoder.Encode(patterns[i], notes, instrumentOrder));
         }
 
         // One shared pointer pair indexed by 1-based pattern number, so a pattern used by several
