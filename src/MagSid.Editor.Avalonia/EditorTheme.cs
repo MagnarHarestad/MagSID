@@ -213,6 +213,15 @@ internal static class EditorTheme
             Setters = { new Setter(TemplatedControl.TemplateProperty, SpinnerTemplate()) },
         });
 
+        // A dialog's usual answer - what Enter picks - lit as a chosen toggle is.
+        foreach (string state in new[] { "", ":pointerover", ":pressed" })
+        {
+            app.Styles.Add(Part(typeof(Button), ".accent" + state, "PART_ContentPresenter",
+                (ContentPresenter.BackgroundProperty, state == "" ? Selection : ButtonHover),
+                (ContentPresenter.BorderBrushProperty, Title),
+                (ContentPresenter.ForegroundProperty, Title)));
+        }
+
         // Toolbar and header buttons: flat until the pointer is on them, as ToolStripButton.
         app.Styles.Add(new Style(x => x.OfType<Button>().Class("strip"))
         {

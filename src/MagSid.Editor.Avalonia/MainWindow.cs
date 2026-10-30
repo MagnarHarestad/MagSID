@@ -197,46 +197,8 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>A yes-or-no question; true for Yes.</summary>
-    private async Task<bool> AskAsync(string title, string question, string detail)
-    {
-        bool answer = false;
-        var window = new Window
-        {
-            Title = title,
-            Width = 460,
-            SizeToContent = SizeToContent.Height,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-        };
-        var yes = new Button { Content = "Yes", MinWidth = 90, IsDefault = true };
-        yes.Click += (_, _) =>
-        {
-            answer = true;
-            window.Close();
-        };
-        var no = new Button { Content = "No", MinWidth = 90, IsCancel = true };
-        no.Click += (_, _) => window.Close();
-
-        window.Content = new StackPanel
-        {
-            Margin = new Thickness(18),
-            Spacing = 12,
-            Children =
-            {
-                new TextBlock { Text = question, TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = detail, TextWrapping = TextWrapping.Wrap, Foreground = Dim },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 8,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Children = { yes, no },
-                },
-            },
-        };
-        await window.ShowDialog(this);
-        return answer;
-    }
+    private async Task<bool> AskAsync(string title, string question, string detail) =>
+        await MessageWindow.ChooseAsync(this, title, question, ["Yes", "No"], accept: 0, cancel: 1, detail) == 0;
 
     // ------------------------------------------------------------------------------------ layout
 
@@ -1752,60 +1714,28 @@ public sealed partial class MainWindow : Window
     /// <summary>A question with a monospaced list in the middle; true for Apply.</summary>
     private async Task<bool> ConfirmAsync(string title, string above, string list, string below)
     {
-        bool answer = false;
-        var window = new Window
+        var listing = new ScrollViewer
         {
-            Title = title,
-            Width = 640,
-            SizeToContent = SizeToContent.Height,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            MaxHeight = 360,
+            Content = new TextBlock { Text = list, FontFamily = Mono, Foreground = Body },
         };
-        var apply = new Button { Content = "Apply", MinWidth = 90, IsDefault = true };
-        apply.Click += (_, _) =>
-        {
-            answer = true;
-            window.Close();
-        };
-        var cancel = new Button { Content = "Cancel", MinWidth = 90, IsCancel = true };
-        cancel.Click += (_, _) => window.Close();
-
-        window.Content = new StackPanel
-        {
-            Margin = new Thickness(18),
-            Spacing = 12,
-            Children =
-            {
-                new TextBlock { Text = above, TextWrapping = TextWrapping.Wrap },
-                new ScrollViewer
-                {
-                    MaxHeight = 360,
-                    Content = new TextBlock { Text = list, FontFamily = Mono, Foreground = Body },
-                },
-                new TextBlock { Text = below, TextWrapping = TextWrapping.Wrap, Foreground = Dim },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 8,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Children = { apply, cancel },
-                },
-            },
-        };
-        await window.ShowDialog(this);
-        return answer;
+        return await MessageWindow.ChooseAsync(this, title, above, ["Apply", "Cancel"], accept: 0, cancel: 1,
+            below, listing, width: 600) == 0;
     }
 
     // ------------------------------------------------------------------------------------ files
 
     private static readonly FilePickerFileType SongFiles = new("MagSID songs") { Patterns = ["*.s"] };
 
-    private async Task<bool> ConfirmDiscardAsync()
+    /// <summary>Before <paramref name="next"/> - "opening another song" - asks what becomes of
+    /// unsaved changes, with buttons that say what each does. False to stay in the song.</summary>
+    private async Task<bool> ConfirmDiscardAsync(string next)
     {
         if (!_session.IsDirty)
             return true;
 
-        var result = await AskAsync("Unsaved changes", "The song has changes that are not saved. Save them first?");
+        string name = _session.FilePath is { } path ? Path.GetFileName(path) : _session.Name ?? "the new song";
+        var result = await AskAsync("Unsaved changes", $"Save the changes to {name} before {next}?");
         if (result is null)
             return false;
         return result == false || await SaveAsync(saveAs: false);
@@ -1815,7 +1745,7 @@ public sealed partial class MainWindow : Window
     /// MidiImporter for how the notes are fitted to three voices.</summary>
     private async Task ImportMidiAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        if (!await ConfirmDiscardAsync("importing the MIDI file"))
             return;
 
         var options = new FilePickerOpenOptions
@@ -1866,7 +1796,7 @@ public sealed partial class MainWindow : Window
     /// SidTranscriber for how what the tune does to the chip becomes notes and instruments.</summary>
     private async Task ImportSidAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        if (!await ConfirmDiscardAsync("importing the SID"))
             return;
 
         var options = new FilePickerOpenOptions
@@ -1916,7 +1846,7 @@ public sealed partial class MainWindow : Window
 
     private async Task NewAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        if (!await ConfirmDiscardAsync("starting a new song"))
             return;
         StopTransport();
         _session.New();
@@ -1924,7 +1854,7 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenAsync()
     {
-        if (!await ConfirmDiscardAsync())
+        if (!await ConfirmDiscardAsync("opening another song"))
             return;
 
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -1995,7 +1925,7 @@ public sealed partial class MainWindow : Window
             return;
 
         e.Cancel = true;
-        if (await ConfirmDiscardAsync())
+        if (await ConfirmDiscardAsync("closing MagSID"))
         {
             _closeConfirmed = true;
             Close();
@@ -2003,45 +1933,11 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Yes, No or Cancel - null for Cancel.</summary>
-    private async Task<bool?> AskAsync(string title, string question)
-    {
-        bool? answer = null;
-        var window = new Window
+    private async Task<bool?> AskAsync(string title, string question) =>
+        await MessageWindow.ChooseAsync(this, title, question, ["Save", "Discard changes", "Keep editing"], accept: 0, cancel: 2) switch
         {
-            Title = title,
-            Width = 420,
-            SizeToContent = SizeToContent.Height,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            0 => true,
+            1 => false,
+            _ => null,
         };
-        Button Choice(string text, bool? value)
-        {
-            var button = new Button { Content = text, MinWidth = 80 };
-            button.Click += (_, _) =>
-            {
-                answer = value;
-                window.Close();
-            };
-            return button;
-        }
-
-        window.Content = new StackPanel
-        {
-            Margin = new Thickness(18),
-            Spacing = 16,
-            Children =
-            {
-                new TextBlock { Text = question, TextWrapping = TextWrapping.Wrap },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 8,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Children = { Choice("Save", true), Choice("Don't save", false), Choice("Cancel", null) },
-                },
-            },
-        };
-        await window.ShowDialog(this);
-        return answer;
-    }
 }
