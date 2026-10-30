@@ -198,7 +198,7 @@ public static class TextRenderer
     {
         if (string.IsNullOrEmpty(text))
             return;
-        var formatted = Drawing.Shim.Text(text, font, new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Drawing.Shim.ToAvalonia(color)));
+        var formatted = Drawing.Shim.Text(text, font, Drawing.Shim.BrushOf(color));
         formatted.Draw(graphics.Context, new Avalonia.Point(point.X + Padding(font, flags), point.Y));
     }
 
@@ -216,7 +216,7 @@ public static class TextRenderer
         if (string.IsNullOrEmpty(text))
             return;
 
-        var formatted = Drawing.Shim.Text(text, font, new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Drawing.Shim.ToAvalonia(color)));
+        var formatted = Drawing.Shim.Text(text, font, Drawing.Shim.BrushOf(color));
         float pad = Padding(font, flags);
         double width = formatted.WidthIncludingTrailingWhitespace, height = formatted.Height;
 

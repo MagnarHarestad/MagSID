@@ -323,19 +323,41 @@ internal sealed class ArrangeView : Control
     /// </summary>
     private int RowsOf(int patternNumber)
     {
-        if (_song?.Patterns.FirstOrDefault(p => p.Number == patternNumber) is not { } pattern)
+        if (_song is null)
             return 0;
 
-        return Played(pattern).Count;
+        // A plain loop: this runs for every clip of every lane, every paint.
+        foreach (var pattern in _song.Patterns)
+        {
+            if (pattern.Number == patternNumber)
+                return Played(pattern).Count;
+        }
+        return 0;
     }
 
     /// <summary>A pattern as it plays - the clip's width and, inside it, where a loop's later
-    /// passes start.</summary>
+    /// passes start. Worked out once per paint, and once per frame's lane positions: both ask for
+    /// each clip several times, and unrolling every time - every pattern of the song again for an
+    /// endless loop's cap - was most of what the DAW allocated while a song played.</summary>
     private IReadOnlyList<PatternLoops.UnrolledRow> Played(Pattern pattern)
     {
+        if (_painting && _playedThisPaint.TryGetValue(pattern, out var known))
+            return known;
+
         bool endless = pattern.Rows.Any(r => r is LoopEndRow { RepeatCount: null });
-        return PatternLoops.Unroll(pattern, endless ? PatternLoops.EndlessCap(_song!) : 0);
+        int cap = 0;
+        if (endless)
+            cap = _painting ? _capThisPaint ??= PatternLoops.EndlessCap(_song!) : PatternLoops.EndlessCap(_song!);
+
+        var played = PatternLoops.Unroll(pattern, cap);
+        if (_painting)
+            _playedThisPaint[pattern] = played;
+        return played;
     }
+
+    private bool _painting;
+    private int? _capThisPaint;
+    private readonly Dictionary<Pattern, IReadOnlyList<PatternLoops.UnrolledRow>> _playedThisPaint = [];
 
     /// <summary>Draw a loop's passes inside its clip - on by default, the same switch as Retro's.
     /// The clip is as wide as it plays either way.</summary>
@@ -462,6 +484,23 @@ internal sealed class ArrangeView : Control
     /// <paramref name="follow"/>, the lanes scroll to keep the cursor in view.
     /// </summary>
     public void SetLanePositions(IReadOnlyList<(int Entry, double Ticks)?> channels, bool follow)
+    {
+        // Called every frame while a song plays, and it measures every lane: each pattern is
+        // unrolled once for the whole pass, as in a paint.
+        _painting = true;
+        try
+        {
+            PlaceLanes(channels, follow);
+        }
+        finally
+        {
+            _painting = false;
+            _capThisPaint = null;
+            _playedThisPaint.Clear();
+        }
+    }
+
+    private void PlaceLanes(IReadOnlyList<(int Entry, double Ticks)?> channels, bool follow)
     {
         if (_song is not { } song)
             return;
@@ -1654,6 +1693,21 @@ internal sealed class ArrangeView : Control
     }
 
     protected override void OnPaint(PaintEventArgs e)
+    {
+        _painting = true;
+        try
+        {
+            PaintArrange(e);
+        }
+        finally
+        {
+            _painting = false;
+            _capThisPaint = null;
+            _playedThisPaint.Clear();
+        }
+    }
+
+    private void PaintArrange(PaintEventArgs e)
     {
         var g = e.Graphics;
         g.Clear(DawPalette.Background);

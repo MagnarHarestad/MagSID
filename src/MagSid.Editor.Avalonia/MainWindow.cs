@@ -710,6 +710,9 @@ public sealed partial class MainWindow : Window
 
         _retroView.IsVisible = !_dawShowing;
         _daw.IsVisible = _dawShowing;
+
+        // Its controls did not repaint while it was hidden.
+        System.Windows.Forms.Control.RepaintAll(_dawShowing ? _daw : _retroView);
         _viewToggle.Header = _dawShowing ? "_Retro" : "_DAW";
 
         if (_dawShowing)

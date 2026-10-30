@@ -42,7 +42,7 @@ public sealed class SolidBrush(Color color) : Brush
 
     public Color Color { get; } = color;
 
-    internal override IBrush ToAvalonia() => _brush ??= new ImmutableSolidColorBrush(Shim.ToAvalonia(Color));
+    internal override IBrush ToAvalonia() => _brush ??= Shim.BrushOf(Color);
 }
 
 public static class Brushes
@@ -80,8 +80,25 @@ public sealed class Pen : IDisposable
     private LineJoin _join;
     private float[]? _pattern;
 
-    internal IPen ToAvalonia() => _pen ??= new ImmutablePen(
-        new ImmutableSolidColorBrush(Shim.ToAvalonia(Color)), Width,
+    /// <summary>One Avalonia pen per colour, width and style, shared by every Pen that asks for it -
+    /// code written for WinForms makes a new Pen for each line it draws, every paint.</summary>
+    internal IPen ToAvalonia()
+    {
+        if (_pen is not null)
+            return _pen;
+        if (_pattern is { Length: > 0 })
+            return _pen = Make();
+
+        var key = (Color.ToArgb(), Width, _dash, _endCap, _join);
+        if (!SharedPens.TryGetValue(key, out var shared))
+            SharedPens[key] = shared = Make();
+        return _pen = shared;
+    }
+
+    private static readonly Dictionary<(int, float, DashStyle, LineCap, LineJoin), IPen> SharedPens = [];
+
+    private IPen Make() => new ImmutablePen(
+        Shim.BrushOf(Color), Width,
         _pattern is { Length: > 0 } custom ? new ImmutableDashStyle(custom.Select(v => (double)v), 0)
         : _dash switch
         {
@@ -557,6 +574,19 @@ internal static class Shim
     private static readonly Dictionary<(string Text, Typeface Face, float Size, IBrush Brush), TextLayout> TextCache = [];
 
     public static AvColor ToAvalonia(Color color) => AvColor.FromArgb(color.A, color.R, color.G, color.B);
+
+    private static readonly Dictionary<int, ImmutableSolidColorBrush> SharedBrushes = [];
+
+    /// <summary>One Avalonia brush per colour, shared - so a brush made afresh for each thing drawn,
+    /// as WinForms code does, still finds its text in <see cref="TextCache"/>, which is keyed on the
+    /// brush, rather than having every string shaped again on every paint.</summary>
+    public static ImmutableSolidColorBrush BrushOf(Color color)
+    {
+        int argb = color.ToArgb();
+        if (!SharedBrushes.TryGetValue(argb, out var brush))
+            SharedBrushes[argb] = brush = new ImmutableSolidColorBrush(ToAvalonia(color));
+        return brush;
+    }
 
     public static TextLayout Text(string text, Font font, IBrush brush)
     {

@@ -481,13 +481,32 @@ public class Control : AvControl, IWin32Window, IDisposable
 
     protected virtual bool IsInputKey(Keys keyData) => false;
 
-    public void Invalidate() => InvalidateVisual();
+    public void Invalidate() => RepaintIfShown();
 
-    public void Invalidate(bool invalidateChildren) => InvalidateVisual();
+    public void Invalidate(bool invalidateChildren) => RepaintIfShown();
 
-    public void Invalidate(Rectangle rect) => InvalidateVisual();
+    public void Invalidate(Rectangle rect) => RepaintIfShown();
 
-    public void Refresh() => InvalidateVisual();
+    public void Refresh() => RepaintIfShown();
+
+    /// <summary>A repaint, unless nothing of this control can be seen. Avalonia still draws a
+    /// control whose own IsVisible is true when an ancestor is hidden, so the Retro grid, hidden
+    /// behind the DAW, went on repainting at every tick of its playback timer. Whatever shows a
+    /// hidden view again repaints what is in it - see <see cref="RepaintAll"/>.</summary>
+    private void RepaintIfShown()
+    {
+        if (IsEffectivelyVisible)
+            InvalidateVisual();
+    }
+
+    /// <summary>Repaints a control and everything in it - for a view that has just been shown,
+    /// whose controls skipped their repaints while it was hidden.</summary>
+    public static void RepaintAll(Avalonia.Visual root)
+    {
+        root.InvalidateVisual();
+        foreach (var visual in root.GetVisualDescendants())
+            visual.InvalidateVisual();
+    }
 
     public void Update()
     {
@@ -673,6 +692,10 @@ public class Control : AvControl, IWin32Window, IDisposable
         {
             OnVisibleChanged(EventArgs.Empty);
             (base.Parent as Layoutable)?.InvalidateArrange();
+
+            // Shown again: what is in it skipped its repaints while it was hidden.
+            if (IsVisible)
+                RepaintAll(this);
         }
     }
 
