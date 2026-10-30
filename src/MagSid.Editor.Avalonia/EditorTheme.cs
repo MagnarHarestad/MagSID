@@ -67,10 +67,19 @@ internal static class EditorTheme
         app.Resources["ToolTipForeground"] = Body;
         app.Resources["ToolTipContentThemeFontSize"] = FontSize;
 
-        app.Styles.Add(Style<Window>(
-            (TemplatedControl.FontFamilyProperty, UiFont),
-            (TemplatedControl.FontSizeProperty, FontSize),
-            (TemplatedControl.ForegroundProperty, Body)));
+        // Every window, the main one and each dialog: Is, not OfType, so subclasses match too.
+        var window = new Style(x => x.Is<Window>())
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.FontFamilyProperty, UiFont),
+                new Setter(TemplatedControl.FontSizeProperty, FontSize),
+                new Setter(TemplatedControl.ForegroundProperty, Body),
+            },
+        };
+        if (AppIcon() is { } icon)
+            window.Setters.Add(new Setter(Window.IconProperty, icon));
+        app.Styles.Add(window);
 
         // Buttons and toggles: flat, a thin border, the editor's button colours.
         foreach (var type in new[] { typeof(Button), typeof(ToggleButton) })
@@ -247,8 +256,13 @@ internal static class EditorTheme
         };
     });
 
-    private static Style Style<T>(params (AvaloniaProperty Property, object Value)[] setters) =>
-        Of(typeof(T), "", setters);
+    /// <summary>MagSID.ico, embedded from the Windows editor's project; null if it is missing,
+    /// so a build without it still runs, on the system's default icon.</summary>
+    private static WindowIcon? AppIcon()
+    {
+        using var stream = typeof(EditorTheme).Assembly.GetManifestResourceStream("MagSID.ico");
+        return stream is null ? null : new WindowIcon(stream);
+    }
 
     private static Style Of(Type type, string state, params (AvaloniaProperty Property, object Value)[] setters)
     {

@@ -11,6 +11,9 @@
     <RootNamespace>MagSid.Editor.Avalonia</RootNamespace>
     <Version>1.71</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 1.64's icon: on the .exe for Explorer and the taskbar, and embedded for the windows'
+         title bars, which the .exe's icon does not reach. -->
+    <ApplicationIcon>..\MagSid.Editor.App\MagSID.ico</ApplicationIcon>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
@@ -25,6 +28,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.20" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.20" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.20" />
+    <EmbeddedResource Include="..\MagSid.Editor.App\MagSID.ico" LogicalName="MagSID.ico" />
   </ItemGroup>
 
 </Project>
