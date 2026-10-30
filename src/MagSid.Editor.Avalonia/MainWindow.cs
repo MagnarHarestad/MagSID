@@ -694,9 +694,16 @@ public sealed partial class MainWindow : Window
             ItemsSource = new[]
             {
                 file,
-                Item("_Signal Path", () => ToggleTool(_signalPathHost)),
-                Item("_Digi to SID-osc", () => ToggleTool(_digiHost)),
-                Item("_Optimize", () => _ = OptimizeAsync()),
+                new MenuItem
+                {
+                    Header = "_Tools",
+                    ItemsSource = new Control[]
+                    {
+                        Item("_Signal Path", () => ToggleTool(_signalPathHost)),
+                        Item("_Digi to SID-osc", () => ToggleTool(_digiHost)),
+                        Item("_Optimize", () => _ = OptimizeAsync()),
+                    },
+                },
                 _midiMenu,
                 _viewToggle,
             },
