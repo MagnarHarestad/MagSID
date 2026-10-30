@@ -15,18 +15,18 @@
 <main class="wrap">
   <section class="hero">
     <img src="logo.png" alt="MagSID logo">
-    <h1>MagSID Editor <span id="version">v1.64</span></h1>
-    <p class="released">Release date: <time id="released" datetime="2026-10-29">2026-10-29</time></p>
+    <h1>MagSID Editor <span id="version">v1.71</span></h1>
+    <p class="released">Release date: <time id="released" datetime="2026-10-30">2026-10-30</time></p>
     <p>A tracker for Commodore 64 music, for Windows, macOS and Linux. Write in a classic tracker grid or a DAW-style piano roll,
       hear it through reSID, and export a <code>.sid</code> that plays exactly the same on the real machine.</p>
     <div class="download">
-      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.64/MagSID-Editor-v1.64-win-x64.zip">Download for Windows</a>
-      <small>Free and open source · Windows 10/11, 64-bit · needs the .NET 8 Desktop Runtime</small>
-      <p class="also"><span class="tag">1.7</span> Also for
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.7/MagSID-1.7-macos-arm64.zip">macOS · Apple Silicon</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.7/MagSID-1.7-macos-x64.zip">macOS · Intel</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.7/MagSID-1.7-linux-x64.tar.gz">Linux · x64</a>
-        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.7">release notes</a>
+      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-windows-x64.zip">Download for Windows</a>
+      <small>Free and open source · Windows 10/11, 64-bit · nothing else to install</small>
+      <p class="also">Also for
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-macos-arm64.zip">macOS · Apple Silicon</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-macos-x64.zip">macOS · Intel</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.71/MagSID-1.71-linux-x64.tar.gz">Linux · x64</a>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.71">release notes</a>
         <a class="plain" href="#mac">opening it on a Mac</a></p>
     </div>
   </section>
@@ -46,6 +46,7 @@
     <div class="card"><div class="i">📼</div><h3>Built-in SID player</h3><p>Open any <code>.sid</code> to play it, with a spectrum and a scope per voice, and save it as WAV, MP3 or FLAC. To see how a tune is built while it plays, there is <a href="https://magnarharestad.github.io/MagPlaySID/">MagPlaySID</a>.</p></div>
     <div class="card"><div class="i">🎼</div><h3>Import MIDI</h3><p>Turn a .mid file into a song the C64 way: bass and drums on channel 1, the chords read bar by bar as arpeggios, the lead on top - and each General MIDI sound mapped to an instrument from the demo songs, or one picked from the sound bank.</p></div>
     <div class="card"><div class="i">💾</div><h3>Import SID</h3><p>Open any .sid tune as a song: MagSID plays it, writes down what it does to the SID chip and rebuilds it as notes, patterns and up to 16 instruments - snare, bass and lead first. It tells you how much of the tune the song sounds like, and picks the row speed - funk speed for a tune that swings - that sounds most in the fewest bytes.</p></div>
+    <div class="card"><div class="i">🔬</div><h3>Tools</h3><p>Signal Path traces one note of an instrument frame by frame - register writes, gate, envelope, filter, oscillator and output - and plays it as the marker moves. Digi to SID-osc turns a .wav into ring-modulated instruments. Optimize shrinks a song without changing how it sounds.</p></div>
     <div class="card"><div class="i">🎛️</div><h3>Sound bank</h3><p>25 sounds from the demo songs - instruments, drums, and arpeggios at three speeds. Click a card to hear it, double-click to add it. Save any instrument as a small JSON file to build up your own.</p></div>
   </div>
 
@@ -119,12 +120,12 @@
 
   <h2 id="start">Get started</h2>
   <ol class="steps">
-    <li>On Windows, install the <a href="https://dotnet.microsoft.com/download/dotnet/8.0">.NET 8 Desktop Runtime</a> for x64 if Windows doesn't already have it, then unpack the download anywhere and run <code>MagSID-Editor.exe</code>. On a Mac or Linux, unpack it and run <code>MagSID.app</code> or <code>./MagSID</code> - .NET is built in. There is no installer.</li>
-    <li>Open a song from the <a href="https://github.com/MagnarHarestad/MagSID/tree/main/SongData">example songs</a> with <b>Menu → Open</b> (F10) - <b>File → Open</b> on a Mac or Linux. F1 plays from the top, F2 from the cursor, F4 stops.</li>
-    <li><b>Menu → About</b> (<b>Help → About</b> on a Mac or Linux) lists every key and control.</li>
+    <li>Unpack the download anywhere and run <code>MagSID.exe</code> on Windows, <code>MagSID.app</code> on a Mac or <code>./MagSID</code> on Linux. .NET is built in, and there is no installer. Coming from 1.64? Your settings carry over, and the old <code>MagSID-Editor.exe</code> can be deleted.</li>
+    <li>Open a song from the <a href="https://github.com/MagnarHarestad/MagSID/tree/main/SongData">example songs</a> with <b>Menu → Open</b> (F10). F1 plays from the top, F2 from the cursor, F4 stops.</li>
+    <li><b>Menu → About</b> lists every key and control.</li>
   </ol>
-  <div class="note">The exe is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
-  <div class="note"><b>macOS and Linux</b> get MagSID 1.7, with everything the Windows editor has - Import MIDI and SID, Optimize, Signal Path, Digi to SID-osc, MIDI keyboards. The same editor comes to Windows in a coming version.</div>
+  <div class="note"><code>MagSID.exe</code> is not code-signed, so Windows SmartScreen may say it comes from an unknown publisher. Choose <b>More info → Run anyway</b>.</div>
+  <div class="note">The last Windows-only version, <a href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.64">1.64</a>, stays available.</div>
   <div class="note mac" id="mac">
     <p><b>On a Mac</b>, unzip the download and move MagSID to Applications. The app is not notarised by Apple yet, so macOS stops it the first time it is opened:</p>
     <ul>
@@ -244,7 +245,7 @@ document.querySelectorAll('.video .player').forEach(link => link.addEventListene
   link.replaceWith(frame);
 }));
 
-// The version and release date under the logo follow the latest release; v1.64 and its date stand
+// The version and release date under the logo follow the latest release; v1.71 and its date stand
 // until GitHub answers, or if it does not.
 fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
   .then(response => response.ok ? response.json() : null)
