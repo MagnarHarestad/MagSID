@@ -61,6 +61,7 @@ public static class EditorSettings
     private static bool _showHighHex;
     private static bool _swapSpacebar;
     private static bool _compactLoops;
+    private static bool _chip6581;
     private static bool? _checkForUpdates;
     private static string _sidAuthor = string.Empty;
     private static int _sidLoadAddress = MagSid.Core.SidLoadAddress.Default;
@@ -83,6 +84,26 @@ public static class EditorSettings
                 return;
 
             _showHighHex = value;
+            Save();
+        }
+    }
+
+    /// <summary>Which SID the editor plays through: the 8580 until the user picks the 6581, and
+    /// from then on whichever was picked last.</summary>
+    public static bool Chip6581
+    {
+        get
+        {
+            EnsureLoaded();
+            return _chip6581;
+        }
+        set
+        {
+            EnsureLoaded();
+            if (_chip6581 == value)
+                return;
+
+            _chip6581 = value;
             Save();
         }
     }
@@ -263,6 +284,7 @@ public static class EditorSettings
                 _showHighHex = stored.ShowHighHex;
                 _swapSpacebar = stored.SwapSpacebar;
                 _compactLoops = stored.CompactLoops;
+                _chip6581 = stored.Chip6581;
                 _checkForUpdates = stored.CheckForUpdates;
                 _sidAuthor = stored.SidAuthor ?? string.Empty;
                 // Absent in settings written before the address was settable, and 0 there means
@@ -310,6 +332,7 @@ public static class EditorSettings
                 ShowHighHex = _showHighHex,
                 SwapSpacebar = _swapSpacebar,
                 CompactLoops = _compactLoops,
+                Chip6581 = _chip6581,
                 CheckForUpdates = _checkForUpdates,
                 SidAuthor = _sidAuthor,
                 SidLoadAddress = _sidLoadAddress,
@@ -329,6 +352,7 @@ public static class EditorSettings
         public bool ShowHighHex { get; set; }
         public bool SwapSpacebar { get; set; }
         public bool CompactLoops { get; set; }
+        public bool Chip6581 { get; set; }
         public bool? CheckForUpdates { get; set; }
         public string? SidAuthor { get; set; }
         public int? SidLoadAddress { get; set; }

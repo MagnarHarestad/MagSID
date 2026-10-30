@@ -33,7 +33,8 @@ internal sealed class App : Application
 {
     public override void Initialize()
     {
-        Styles.Add(new FluentTheme());
+        Styles.Add(new FluentTheme { DensityStyle = DensityStyle.Compact });
+        EditorTheme.Apply(this);
         RequestedThemeVariant = ThemeVariant.Dark;
         Name = "MagSID";
     }

@@ -35,17 +35,14 @@ namespace MagSid.Editor.Avalonia;
 public sealed partial class MainWindow : Window
 {
     private static readonly IBrush WindowBackground = new SolidColorBrush(AvColor.FromRgb(0x10, 0x10, 0x20));
-    private static readonly IBrush Field = new SolidColorBrush(AvColor.FromRgb(0x1C, 0x1C, 0x30));
     private static readonly IBrush Body = new SolidColorBrush(AvColor.FromRgb(0xD2, 0xD2, 0xDE));
     private static readonly IBrush Dim = new SolidColorBrush(AvColor.FromRgb(0x8A, 0x8A, 0xA8));
-    private static readonly IBrush Accent = new SolidColorBrush(AvColor.FromRgb(0x66, 0xCC, 0xFF));
     private static readonly FontFamily Mono = new("Consolas, Menlo, DejaVu Sans Mono, monospace");
 
     private readonly EditorSession _session = new();
     private readonly AutosaveManager _autosave;
     private readonly TrackerGridControl _grid = new();
     private readonly DawView _daw = new();
-    private readonly ListBox _instruments = new();
     private readonly InstrumentEditorView _instrumentEditor = new();
     private readonly TextBlock _status = new();
     private readonly TextBlock _songLength = new();
@@ -59,7 +56,8 @@ public sealed partial class MainWindow : Window
     private readonly NumericUpDown _funkSpeed = new();
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(15) };
 
-    private ChipModel _chipModel = ChipModel.Mos6581;
+    // The 8580 to begin with, as in 1.64; a pick of the other is remembered.
+    private ChipModel _chipModel = EditorSettings.Chip6581 ? ChipModel.Mos6581 : ChipModel.Mos8580;
     private SongPlaybackEngine? _engine;
     private IAudioOutput? _output;
     private IAudioOutput? _previewOutput;
@@ -87,9 +85,12 @@ public sealed partial class MainWindow : Window
 
     public MainWindow(string? songPath = null)
     {
-        Title = "MagSID Editor";
-        Width = 1280;
-        Height = 820;
+        Title = $"MagSID Editor {EditorVersion}";
+
+        // As 1.64: exactly as wide as the instrument column, the splitter and the grid, so there
+        // is no margin either side until the window is made wider.
+        Width = InstrumentColumnWidth + SplitterWidth + TrackerGridControl.ContentWidth + 1;
+        Height = 941;
         MinWidth = 900;
         MinHeight = 520;
         Background = WindowBackground;
@@ -155,7 +156,7 @@ public sealed partial class MainWindow : Window
             bool yes = await AskAsync("Check for updates",
                 "Check for updates each time MagSID starts?",
                 "MagSID would look up the latest version on its website when it starts, and tell you when a " +
-                "newer one is out. Nothing else is sent. You can change this any time under File → Check for Updates.");
+                "newer one is out. Nothing else is sent. You can change this any time under Menu → Check for Updates.");
             EditorSettings.CheckForUpdates = yes;
             _checkForUpdatesItem.IsChecked = yes;
             if (!yes)
@@ -276,7 +277,6 @@ public sealed partial class MainWindow : Window
         };
 
         _editMode.VerticalAlignment = VerticalAlignment.Center;
-        _editMode.FontFamily = Mono;
         _editMode.Cursor = new Cursor(StandardCursorType.Hand);
         _editMode.PointerPressed += (_, _) =>
         {
@@ -287,6 +287,7 @@ public sealed partial class MainWindow : Window
         _chip.Click += (_, _) =>
         {
             _chipModel = _chipModel == ChipModel.Mos6581 ? ChipModel.Mos8580 : ChipModel.Mos6581;
+            EditorSettings.Chip6581 = _chipModel == ChipModel.Mos6581;
             _daw.ChipModel = _chipModel;
             _jam?.Dispose();
             _jam = null;
@@ -301,44 +302,50 @@ public sealed partial class MainWindow : Window
         };
         UpdateChipButton();
 
-        _songLength.VerticalAlignment = VerticalAlignment.Center;
-        _songLength.Foreground = Dim;
-        _songLength.FontFamily = Mono;
-        _rasterTime.VerticalAlignment = VerticalAlignment.Center;
-        _rasterTime.Foreground = Dim;
-        _rasterTime.FontFamily = Mono;
+        _speed.Width = _funkSpeed.Width = 50;
 
-        var toolbar = new StackPanel
+        var funkLabel = Label("Funk:");
+        ToolTip.SetTip(funkLabel, ToolTip.GetTip(_funkSpeed));
+        var open = StripButton("Open", () => _ = OpenAsync());
+        var save = StripButton("Save", () => _ = SaveAsync(saveAs: false));
+        var previous = StripButton("◀", () => _grid.MoveCursorRowPage(-TrackerGridControl.PageRows));
+        var next = StripButton("▶", () => _grid.MoveCursorRowPage(TrackerGridControl.PageRows));
+        _play.Classes.Add("strip");
+        _chip.Classes.Add("strip");
+        _editMode.Margin = new Thickness(6, 0);
+
+        // The Windows editor's toolbar, item for item: file, speed, transport, paging, size.
+        var toolbar = new Border
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 10,
-            Margin = new Thickness(8, 4),
-            Children =
+            Background = EditorTheme.Field,
+            BorderBrush = EditorTheme.Border,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(2, 2),
+            Child = new StackPanel
             {
-                _play,
-                Label("Song Speed:"), _speed,
-                Label("Funk:"), _funkSpeed,
-                _editMode,
-                _chip,
-                _songLength,
-                _rasterTime,
+                Orientation = Orientation.Horizontal,
+                Spacing = 2,
+                Children =
+                {
+                    open, save, StripSeparator(),
+                    Label("Song Speed:"), _speed,
+                    funkLabel, _funkSpeed, StripSeparator(),
+                    _play, _editMode, _chip, StripSeparator(),
+                    Label("Scroll:"), previous, next, StripSeparator(),
+                    _songLength, StripSeparator(),
+                    _rasterTime,
+                },
             },
         };
-
-        // The instrument list and the editor under it, left of the grid as in the Windows editor.
-        _instruments.FontFamily = Mono;
-        _instruments.Background = Field;
-        _instruments.Height = 16 * 22 + 4;
-        _instruments.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
+        foreach (var label in new[] { _songLength, _rasterTime })
         {
-            Setters =
-            {
-                new Setter(ListBoxItem.PaddingProperty, new Thickness(8, 2)),
-                new Setter(MinHeightProperty, 22.0),
-                new Setter(HeightProperty, 22.0),
-            },
-        });
+            label.VerticalAlignment = VerticalAlignment.Center;
+            label.Foreground = Body;
+            label.Margin = new Thickness(4, 0);
+        }
+
         var listHeader = BuildInstrumentListHeader();
+        var list = BuildInstrumentTable();
 
         _instrumentEditor.Edited += () =>
         {
@@ -346,20 +353,16 @@ public sealed partial class MainWindow : Window
             RefreshInstrumentNames();
         };
 
-        var left = new DockPanel { Width = InstrumentColumnWidth, Margin = new Thickness(8, 4, 4, 8) };
+        var left = new DockPanel { Width = InstrumentColumnWidth };
         DockPanel.SetDock(listHeader, Dock.Top);
-        DockPanel.SetDock(_instruments, Dock.Top);
+        DockPanel.SetDock(list, Dock.Top);
         left.Children.Add(listHeader);
-        left.Children.Add(_instruments);
-        left.Children.Add(new ScrollViewer { Content = _instrumentEditor, Margin = new Thickness(0, 8, 0, 0) });
+        left.Children.Add(list);
+        left.Children.Add(_instrumentEditor);
 
         // The grid's columns are fixed pixel widths; it keeps its own width.
         _grid.Width = TrackerGridControl.ContentWidth;
-        var gridHost = new Border
-        {
-            Child = _grid,
-            Margin = new Thickness(0, 4, 8, 8),
-        };
+        var gridHost = new Border { Child = _grid };
 
         // Instruments and the grid side by side, a splitter between them, as in the Windows
         // editor: the pair is centred and a wide window's spare width is margin either side of
@@ -380,23 +383,83 @@ public sealed partial class MainWindow : Window
         _daw.ChipModel = _chipModel;
         var centre = new Panel { Children = { retro, _daw } };
 
-        _status.Foreground = Dim;
-        _status.Margin = new Thickness(8, 2);
+        // The file on the left, a passing notice and whether it is saved on the right - 1.64's
+        // status strip.
+        var statusRight = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+            Children = { _notice, _dirty },
+        };
+        _notice.Foreground = EditorTheme.Notice;
+        _noticeTimer.Tick += (_, _) =>
+        {
+            _noticeTimer.Stop();
+            _notice.Text = "";
+        };
+        var statusRow = new DockPanel();
+        DockPanel.SetDock(statusRight, Dock.Right);
+        statusRow.Children.Add(statusRight);
+        statusRow.Children.Add(_status);
+        var statusBar = new Border
+        {
+            Background = EditorTheme.Field,
+            BorderBrush = EditorTheme.Border,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(8, 3),
+            Child = statusRow,
+        };
 
         var root = new DockPanel();
         DockPanel.SetDock(menu, Dock.Top);
         DockPanel.SetDock(toolbar, Dock.Top);
-        DockPanel.SetDock(_status, Dock.Bottom);
+        DockPanel.SetDock(statusBar, Dock.Bottom);
         root.Children.Add(menu);
         root.Children.Add(toolbar);
-        root.Children.Add(_status);
+        root.Children.Add(statusBar);
         root.Children.Add(centre);
         return root;
     }
 
+    private readonly TextBlock _notice = new();
+    private readonly TextBlock _dirty = new();
+
+    /// <summary>A notice is read once and then gets out of the way.</summary>
+    private readonly DispatcherTimer _noticeTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+
+    /// <summary>"v1.71", from the project's version - the same number About shows.</summary>
+    private static string EditorVersion
+    {
+        get
+        {
+            var version = typeof(MainWindow).Assembly.GetName().Version;
+            return $"v{version?.Major}.{version?.Minor}";
+        }
+    }
+
+    /// <summary>A flat toolbar button, as a ToolStripButton: no frame until the pointer is on it.</summary>
+    private Button StripButton(string text, Action action)
+    {
+        var button = new Button { Content = text, Classes = { "strip" } };
+        button.Click += (_, _) =>
+        {
+            action();
+            _grid.Focus();
+        };
+        return button;
+    }
+
+    private static Control StripSeparator() => new Border
+    {
+        Width = 1,
+        Margin = new Thickness(4, 3),
+        Background = EditorTheme.Border,
+    };
+
     /// <summary>The instrument column's width to start with, and how narrow and wide the splitter
-    /// can make it.</summary>
+    /// can make it. The splitter's own width is 1.64's SplitContainer's.</summary>
     private const double InstrumentColumnWidth = 620;
+    private const double SplitterWidth = 4;
     private const double NarrowestInstrumentColumn = 260;
     private const double WidestInstrumentColumn = 900;
 
@@ -405,9 +468,8 @@ public sealed partial class MainWindow : Window
     {
         var bar = new Border
         {
-            Width = 5,
-            Margin = new Thickness(0, 4, 4, 8),
-            Background = new SolidColorBrush(AvColor.FromRgb(0x2A, 0x2A, 0x44)),
+            Width = SplitterWidth,
+            Background = EditorTheme.Border,
             Cursor = new Cursor(StandardCursorType.SizeWestEast),
         };
 
@@ -471,17 +533,25 @@ public sealed partial class MainWindow : Window
 
         string command = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
 
+        // 1.64's menu bar, item for item: one Menu with the file, history and preferences, then
+        // the tools as items of their own, MIDI, and the view switch last.
         var file = new MenuItem
         {
-            Header = "_File",
+            Header = "_Menu",
             ItemsSource = new Control[]
             {
+                Item("About", () => _ = new AboutWindow().ShowDialog(this)),
+                new Separator(),
+                Item("Undo", () => StepHistory(undo: true), $"{command}+Z"),
+                Item("Redo", () => StepHistory(undo: false), $"{command}+Y"),
+                new Separator(),
                 Item("New", () => _ = NewAsync(), $"{command}+N"),
-                Item("Open...", () => _ = OpenAsync(), $"{command}+O"),
+                Item("Open...", () => _ = OpenAsync(), "F10"),
                 Item("Import MIDI...", () => _ = ImportMidiAsync()),
                 Item("Import SID...", () => _ = ImportSidAsync()),
+                new Separator(),
                 Item("Save", () => _ = SaveAsync(saveAs: false), $"{command}+S"),
-                Item("Save As...", () => _ = SaveAsync(saveAs: true), $"{command}+Shift+S"),
+                Item("Save As...", () => _ = SaveAsync(saveAs: true), "F11"),
                 new Separator(),
                 Item("Load Instrument...", () => _ = LoadInstrumentsAsync()),
                 Item("Save Instrument...", () => _ = SaveInstrumentAsync()),
@@ -489,14 +559,14 @@ public sealed partial class MainWindow : Window
                 Item("Export to .sid...", () => _ = new SidExportWindow(_session.Song, _session.Name ?? "Untitled", _chipModel).ShowDialog(this), "F9"),
                 Item("Load and Play .sid...", () => new SidPlayerWindow().Show()),
                 new Separator(),
-                // Space and F5 are a pair: one plays and stops, the other flips Edit and Jam,
-                // and which is which depends on the tracker a musician learnt on.
                 // GoatTracker's forms in the instrument editor: $80+ notes, 9x filter modes.
                 Setting("Show High Hex-Values", EditorSettings.ShowHighHex, on =>
                 {
                     EditorSettings.ShowHighHex = on;
                     _instrumentEditor.RefreshHighHexDisplay();
                 }),
+                // Space and F5 are a pair: one plays and stops, the other flips Edit and Jam,
+                // and which is which depends on the tracker a musician learnt on.
                 Setting("Swap Spacebar Behavior", EditorSettings.SwapSpacebar, on =>
                 {
                     EditorSettings.SwapSpacebar = on;
@@ -511,33 +581,7 @@ public sealed partial class MainWindow : Window
                 }),
                 _checkForUpdatesItem,
                 new Separator(),
-                Item("Quit", Close),
-            },
-        };
-
-        var edit = new MenuItem
-        {
-            Header = "_Edit",
-            ItemsSource = new Control[]
-            {
-                Item("Undo", () => StepHistory(undo: true), $"{command}+Z"),
-                Item("Redo", () => StepHistory(undo: false), $"{command}+Y"),
-                new Separator(),
-                Item("Optimize...", () => _ = OptimizeAsync()),
-            },
-        };
-
-        var play = new MenuItem
-        {
-            Header = "_Play",
-            ItemsSource = new Control[]
-            {
-                Item("Play from the top", StartFromBeginning, "F1"),
-                Item("Play from the cursor", StartFromCurrentPosition, "F2"),
-                Item("Loop the patterns at the cursor", PlayCurrentPattern, "F3"),
-                Item("Stop", StopAny, "F4"),
-                new Separator(),
-                Item("Edit / Jam", () => _grid.ToggleEditMode(), "F5"),
+                Item("Exit", Close),
             },
         };
 
@@ -549,23 +593,18 @@ public sealed partial class MainWindow : Window
         _midiMenu.Items.Add(new MenuItem { Header = "No MIDI inputs found", IsEnabled = false });
         _midiMenu.SubmenuOpened += (_, _) => BuildMidiMenu();
 
-        var tools = new MenuItem
+        return new Menu
         {
-            Header = "_Tools",
-            ItemsSource = new Control[]
+            ItemsSource = new[]
             {
-                Item("Signal Path", () => new SignalPathWindow(_session.Song.Instruments).Show(this)),
-                Item("Digi to SID-osc", () => new DigiToSidOscWindow(_session).Show(this)),
+                file,
+                Item("_Signal Path", () => new SignalPathWindow(_session.Song.Instruments).Show(this)),
+                Item("_Digi to SID-osc", () => new DigiToSidOscWindow(_session).Show(this)),
+                Item("_Optimize", () => _ = OptimizeAsync()),
+                _midiMenu,
+                _viewToggle,
             },
         };
-
-        var help = new MenuItem
-        {
-            Header = "_Help",
-            ItemsSource = new Control[] { Item("About MagSID Editor", () => _ = new AboutWindow().ShowDialog(this)) },
-        };
-
-        return new Menu { ItemsSource = new[] { file, edit, play, tools, _midiMenu, _viewToggle, help } };
     }
 
     // ------------------------------------------------------------------------------------ wiring
@@ -812,10 +851,7 @@ public sealed partial class MainWindow : Window
         ReleaseJamNote(note);
     }
 
-    private Instrument? SelectedInstrument =>
-        _instruments.SelectedIndex is var index and >= 0 && index < _session.Song.Instruments.Count
-            ? _session.Song.Instruments[index]
-            : null;
+    private Instrument? SelectedInstrument => InstrumentInSlot(_instruments.SelectedIndex);
 
     private void RefreshAll()
     {
@@ -842,8 +878,9 @@ public sealed partial class MainWindow : Window
     private void RefreshStatus()
     {
         string name = _session.FilePath is { } path ? Path.GetFileName(path) : _session.Name ?? "New Song";
-        Title = $"MagSID Editor - {name}{(_session.IsDirty ? " *" : "")}";
-        _status.Text = $"{_session.FilePath ?? "(unsaved)"}   ·   {(_session.IsDirty ? "Modified" : "Saved")}";
+        Title = $"MagSID Editor {EditorVersion} - {name}{(_session.IsDirty ? " *" : "")}";
+        _status.Text = _session.FilePath ?? "(unsaved)";
+        _dirty.Text = _session.IsDirty ? "Modified" : "Saved";
 
         RefreshSongLength();
     }
@@ -893,15 +930,18 @@ public sealed partial class MainWindow : Window
         // reads as a fault.
         string key = EditorSettings.SwapSpacebar ? "F5" : "Space";
         ToolTip.SetTip(_editMode, $"Edit/Jam ({key}) - click to flip");
-        _editMode.Text = (_grid.EditMode ? "● EDIT" : "● JAM") + " · " + key;
-        _editMode.Foreground = _grid.EditMode
-            ? new SolidColorBrush(AvColor.FromRgb(0xFF, 0x66, 0x66))
-            : new SolidColorBrush(AvColor.FromRgb(0x66, 0xFF, 0x99));
+        _editMode.Text = (_grid.EditMode ? "● EDIT" : "○ JAM") + " · " + key;
+        _editMode.Foreground = _grid.EditMode ? Brushes.OrangeRed : Brushes.MediumSeaGreen;
     }
 
     private void UpdateChipButton() => _chip.Content = $"SID: {(_chipModel == ChipModel.Mos6581 ? "6581" : "8580")}";
 
-    private void ShowNotice(string text) => _status.Text = text;
+    private void ShowNotice(string text)
+    {
+        _notice.Text = text;
+        _noticeTimer.Stop();
+        _noticeTimer.Start();
+    }
 
     private void StepHistory(bool undo)
     {
@@ -926,7 +966,7 @@ public sealed partial class MainWindow : Window
         if (_dawShowing)
             _daw.RenameSelectedInstrument();
         else
-            _instrumentEditor.FocusName();
+            BeginRename(added.Number);
     }
 
     /// <summary>A copy of one of the GM bank's sounds, as it is in the bank, added after the
@@ -997,9 +1037,8 @@ public sealed partial class MainWindow : Window
     /// <summary>Selects the instrument in both views' lists.</summary>
     private void SelectInstrumentNumber(int number)
     {
-        int index = _session.Song.Instruments.FindIndex(i => i.Number == number);
-        if (index >= 0)
-            _instruments.SelectedIndex = index;
+        if (InstrumentInSlot(number - 1) is not null)
+            _instruments.SelectedIndex = number - 1;
         _daw.SelectInstrument(number);
     }
 
@@ -1014,12 +1053,14 @@ public sealed partial class MainWindow : Window
 
     private void StepSelectedInstrument(int delta)
     {
-        int count = _session.Song.Instruments.Count;
-        if (count == 0)
+        // Through the instruments there are, in number order, round from the last to the first.
+        var numbers = _session.Song.Instruments.Select(i => i.Number).Order().ToList();
+        if (numbers.Count == 0)
             return;
 
-        int index = Math.Max(0, _instruments.SelectedIndex);
-        _instruments.SelectedIndex = (index + delta + count) % count;
+        int at = Math.Max(0, SelectedInstrument is { } current ? numbers.IndexOf(current.Number) : 0);
+        int next = (at + delta + numbers.Count) % numbers.Count;
+        SelectInstrumentNumber(numbers[next]);
     }
 
     // ------------------------------------------------------------------------------------ playback

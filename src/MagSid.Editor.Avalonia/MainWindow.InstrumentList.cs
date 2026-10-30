@@ -1,9 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MagSid.Core.Midi;
@@ -17,27 +21,40 @@ namespace MagSid.Editor.Avalonia;
 
 /// <summary>
 /// The Retro view's instrument list, as the Windows editor's InstrumentListControl and its header:
-/// how many of the 16 are in use; add, and a menu of the other ways to add - a sound of the bank,
-/// a file - with changing the selected instrument's sound, duplicating it and saving it to a file,
-/// and the bank folder; duplicate and delete. A "+ New instrument" row stands in the first empty
-/// slot, Insert adds and Delete deletes, a right-click offers the same, and a drag up or down
-/// moves an instrument to another number.
+/// a table of all 16 slots - number, name and the programs it carries - with how many are in use;
+/// add, and a menu of the other ways to add - a sound of the bank, a file - with changing the
+/// selected instrument's sound, duplicating it and saving it to a file, and the bank folder;
+/// duplicate and delete. A "+ New instrument" row stands in the first empty slot, Insert adds and
+/// Delete deletes, a right-click offers the same, a drag up or down moves an instrument to another
+/// number, and the name is typed in the list - F2, a double-click, or just typing.
 /// </summary>
 public sealed partial class MainWindow
 {
     private const string NewInstrumentText = "+ New instrument";
 
+    /// <summary>1.64's DataGridView: its header row, its rows, and the columns' shares of the width.</summary>
+    private const double InstrumentHeaderHeight = 23;
+    private const double InstrumentRowHeight = 25;
+    private const string InstrumentColumns = "50*,200*,100*";
+
+    private readonly ListBox _instruments = new();
     private readonly TextBlock _instrumentCount = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Button _addInstrument = new() { Content = "+" };
-    private readonly Button _moreInstrument = new() { Content = "▾" };
-    private readonly Button _duplicateInstrument = new() { Content = "Duplicate" };
-    private readonly Button _deleteInstrument = new() { Content = "Delete" };
+    private readonly Button _addInstrument = IconButton("", "+");
+    private readonly Button _moreInstrument = IconButton("", "v", width: 16);
+    private readonly Button _duplicateInstrument = IconButton("", "Dup");
+    private readonly Button _deleteInstrument = IconButton("", "Del");
+    private readonly TextBox _rename = new() { IsVisible = false, Height = InstrumentRowHeight };
+    private Instrument? _renaming;
 
     /// <summary>The list being refilled: the selection changes that makes are not the user's.</summary>
     private bool _listing;
 
     /// <summary>The row a drag to reorder is at, -1 when none is under way.</summary>
     private int _dragIndex = -1;
+
+    /// <summary>One slot of the table. Row i is always slot i + 1, whether or not it holds an
+    /// instrument, so the numbers shown count the instruments in use at a glance.</summary>
+    private sealed record InstrumentSlot(string Number, string Name, string Programs, IBrush Ink);
 
     private Control BuildInstrumentListHeader()
     {
@@ -54,26 +71,202 @@ public sealed partial class MainWindow
         more.Opening += (_, _) => FillInstrumentMenu(more.Items);
         _moreInstrument.Flyout = more;
 
-        _instrumentCount.Foreground = Dim;
+        _instrumentCount.Foreground = EditorTheme.Subtitle;
+        _instrumentCount.Margin = new Thickness(0, 0, 8, 0);
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            Children = { _addInstrument, _moreInstrument, _duplicateInstrument, _deleteInstrument },
-        };
-        var title = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Margin = new Thickness(0, 0, 2, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { new TextBlock { Text = "Instruments", Foreground = Accent }, _instrumentCount },
+            Children = { _instrumentCount, _addInstrument, _moreInstrument, _duplicateInstrument, _deleteInstrument },
+        };
+        var title = new TextBlock
+        {
+            Text = "Instruments",
+            Foreground = EditorTheme.Heading,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0),
         };
 
-        var header = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+        var header = new DockPanel { Height = 28, Background = EditorTheme.Background };
         DockPanel.SetDock(buttons, Dock.Right);
         header.Children.Add(buttons);
         header.Children.Add(title);
         return header;
+    }
+
+    /// <summary>The header's flat icon buttons: Windows' own icon font where there is one, as in
+    /// 1.64, and short words elsewhere.</summary>
+    private static Button IconButton(string glyph, string fallback, double width = 24)
+    {
+        bool icons = OperatingSystem.IsWindows();
+        return new Button
+        {
+            Content = icons ? glyph : fallback,
+            FontFamily = icons ? new FontFamily("Segoe MDL2 Assets") : EditorTheme.UiFont,
+            FontSize = icons ? 12 : 11,
+            Width = icons ? width : Math.Max(width, 30),
+            Height = 22,
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Foreground = EditorTheme.Heading,
+            Classes = { "strip" },
+            Focusable = false,
+        };
+    }
+
+    /// <summary>The table: its header row, the 16 slots under it, and the box a name is typed in,
+    /// laid over the Name cell of the row being renamed.</summary>
+    private Control BuildInstrumentTable()
+    {
+        var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse(InstrumentColumns), Height = InstrumentHeaderHeight, Background = EditorTheme.Field };
+        string[] headings = ["#", "Name", "Prog."];
+        for (int column = 0; column < headings.Length; column++)
+        {
+            var cell = new Border
+            {
+                BorderBrush = EditorTheme.Border,
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock
+                {
+                    Text = headings[column],
+                    Foreground = EditorTheme.Heading,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0),
+                },
+            };
+            Grid.SetColumn(cell, column);
+            header.Children.Add(cell);
+        }
+
+        _instruments.Background = EditorTheme.Background;
+        _instruments.Padding = new Thickness(0);
+        _instruments.Height = InstrumentRowHeight * SongValidator.MaxInstrumentNumber;
+        ScrollViewer.SetVerticalScrollBarVisibility(_instruments, global::Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
+        _instruments.ItemTemplate = new FuncDataTemplate<InstrumentSlot?>((slot, _) =>
+        {
+            // A row being taken away is shown nothing on its way out.
+            if (slot is null)
+                return new Panel();
+
+            var row = new Grid { ColumnDefinitions = ColumnDefinitions.Parse(InstrumentColumns), Height = InstrumentRowHeight };
+            string[] cells = [slot.Number, slot.Name, slot.Programs];
+            for (int column = 0; column < cells.Length; column++)
+            {
+                var text = new TextBlock
+                {
+                    Text = cells[column],
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(4, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+
+                // Occupied rows take the item's own ink, so a selected row turns the selection's
+                // colour; empty ones are dimmer, and the "+ New instrument" slot is the accent.
+                if (!ReferenceEquals(slot.Ink, EditorTheme.Body))
+                    text.Foreground = slot.Ink;
+
+                var cell = new Border
+                {
+                    BorderBrush = EditorTheme.Button,
+                    BorderThickness = new Thickness(0, 0, 1, 1),
+                    Child = text,
+                };
+                Grid.SetColumn(cell, column);
+                row.Children.Add(cell);
+            }
+            return row;
+        }, supportsRecycling: false);
+
+        _instruments.Styles.Add(new Style(x => x.OfType<ListBoxItem>())
+        {
+            Setters =
+            {
+                new Setter(PaddingProperty, new Thickness(0)),
+                new Setter(MinHeightProperty, 0.0),
+                new Setter(HeightProperty, InstrumentRowHeight),
+                new Setter(ForegroundProperty, EditorTheme.Body),
+            },
+        });
+        foreach (string state in new[] { ":pointerover", ":pressed" })
+        {
+            _instruments.Styles.Add(new Style(x => x.OfType<ListBoxItem>().Class(state).Template().OfType<ContentPresenter>())
+            {
+                Setters = { new Setter(ContentPresenter.BackgroundProperty, Brushes.Transparent) },
+            });
+        }
+        foreach (string state in new[] { "", ":pointerover", ":pressed", ":focus" })
+        {
+            var selector = state.Length == 0
+                ? (Func<Selector?, Selector>)(x => x.OfType<ListBoxItem>().Class(":selected").Template().OfType<ContentPresenter>())
+                : x => x.OfType<ListBoxItem>().Class(":selected").Class(state).Template().OfType<ContentPresenter>();
+            _instruments.Styles.Add(new Style(selector)
+            {
+                Setters =
+                {
+                    new Setter(ContentPresenter.BackgroundProperty, EditorTheme.Selection),
+                    new Setter(ContentPresenter.ForegroundProperty, EditorTheme.Title),
+                },
+            });
+        }
+
+        // Typed over the Name cell; Enter or leaving keeps it, Escape puts the old name back.
+        _rename.VerticalAlignment = VerticalAlignment.Top;
+        _rename.FontFamily = EditorTheme.UiFont;
+        _rename.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Enter or Key.Escape)
+            {
+                EndRename(keep: e.Key == Key.Enter);
+                e.Handled = true;
+            }
+        };
+        _rename.LostFocus += (_, _) => EndRename(keep: true);
+        var renameLayer = new Grid { ColumnDefinitions = ColumnDefinitions.Parse(InstrumentColumns) };
+        Grid.SetColumn(_rename, 1);
+        renameLayer.Children.Add(_rename);
+
+        var table = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        table.Children.Add(header);
+        table.Children.Add(_instruments);
+        return new Panel { Children = { table, renameLayer } };
+    }
+
+    /// <summary>Opens a slot's name for typing - what follows adding one, so it can be named
+    /// straight away; F2 and a double-click do the same. A first letter typed replaces the name.</summary>
+    private void BeginRename(int number, string? typed = null)
+    {
+        if (_session.Song.Instruments.FirstOrDefault(i => i.Number == number) is not { } instrument)
+            return;
+
+        _renaming = instrument;
+        _rename.Text = typed ?? instrument.Name;
+        _rename.Margin = new Thickness(0, InstrumentHeaderHeight + (number - 1) * InstrumentRowHeight, 0, 0);
+        _rename.IsVisible = true;
+        _rename.Focus();
+        if (typed is null)
+            _rename.SelectAll();
+        else
+            _rename.CaretIndex = typed.Length;
+    }
+
+    private void EndRename(bool keep)
+    {
+        if (_renaming is not { } instrument)
+            return;
+
+        _renaming = null;
+        _rename.IsVisible = false;
+        string name = (_rename.Text ?? "").Trim();
+        if (keep && name != instrument.Name)
+        {
+            instrument.Name = name;
+            _session.MarkDirty();
+            RefreshInstrumentNames();
+        }
+        _instruments.Focus();
     }
 
     private void WireInstrumentList()
@@ -82,16 +275,6 @@ public sealed partial class MainWindow
         {
             if (_listing)
                 return;
-
-            // The "+ New instrument" row is not an instrument to select: a click on it adds one
-            // (below), and arrowing onto it stays on the last instrument.
-            if (_instruments.SelectedIndex == _session.Song.Instruments.Count && _session.Song.Instruments.Count > 0)
-            {
-                _listing = true;
-                _instruments.SelectedIndex = _session.Song.Instruments.Count - 1;
-                _listing = false;
-                return;
-            }
 
             ShowSelectedInstrument();
             UpdateInstrumentButtons();
@@ -104,11 +287,31 @@ public sealed partial class MainWindow
                 AddInstrument();
                 e.Handled = true;
             }
-            else if (e.Key is Key.Delete or Key.Back && SelectedInstrument is not null)
+            else if (e.Key is Key.Delete && SelectedInstrument is not null)
             {
                 DeleteInstrument();
                 e.Handled = true;
             }
+            else if (e.Key == Key.F2 && SelectedInstrument is { } instrument)
+            {
+                BeginRename(instrument.Number);
+                e.Handled = true;
+            }
+        };
+
+        // Typing on a selected instrument names it, as in 1.64's table.
+        _instruments.TextInput += (_, e) =>
+        {
+            if (SelectedInstrument is { } instrument && !string.IsNullOrEmpty(e.Text) && !char.IsControl(e.Text[0]))
+            {
+                BeginRename(instrument.Number, e.Text);
+                e.Handled = true;
+            }
+        };
+        _instruments.DoubleTapped += (_, e) =>
+        {
+            if (InstrumentIndexAt(e) is var index and >= 0 && InstrumentInSlot(index) is { } instrument)
+                BeginRename(instrument.Number);
         };
 
         var menu = new ContextMenu();
@@ -118,32 +321,31 @@ public sealed partial class MainWindow
             menu.ItemsSource = new Control[]
             {
                 MenuEntry("Add", AddInstrument, !InstrumentsFull),
-                MenuEntry("Duplicate", DuplicateInstrument, selected && !InstrumentsFull),
+                MenuEntry("Copy", DuplicateInstrument, selected && !InstrumentsFull),
                 MenuEntry("Delete", DeleteInstrument, selected),
             };
         };
         _instruments.ContextMenu = menu;
 
         // A right-click picks the row under it first, so Delete acts on what was clicked; a left
-        // press on an instrument arms the drag that moves it.
+        // press on the "+ New instrument" slot adds one, and on an instrument arms the drag that
+        // moves it.
         _instruments.AddHandler(PointerPressedEvent, (_, e) =>
         {
             int index = InstrumentIndexAt(e);
             var point = e.GetCurrentPoint(_instruments);
-            if (point.Properties.IsRightButtonPressed && index >= 0 && index < _session.Song.Instruments.Count)
+            if (point.Properties.IsRightButtonPressed && index >= 0)
                 _instruments.SelectedIndex = index;
 
             // Posted, so the list is done with its own click before it is refilled.
-            if (point.Properties.IsLeftButtonPressed && index == _session.Song.Instruments.Count && !InstrumentsFull)
+            if (point.Properties.IsLeftButtonPressed && index >= 0 && index == NewInstrumentRow && !InstrumentsFull)
                 Dispatcher.UIThread.Post(AddInstrument);
 
-            _dragIndex = point.Properties.IsLeftButtonPressed && index >= 0 && index < _session.Song.Instruments.Count
-                ? index
-                : -1;
+            _dragIndex = point.Properties.IsLeftButtonPressed && InstrumentInSlot(index) is not null ? index : -1;
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        // A move each time the drag crosses into another instrument's row, not each pixel; the
-        // list is refilled after every move, and the next row is found again by position.
+        // A move each time the drag crosses into another row, not each pixel; the list is
+        // refilled after every move, and the next row is found again by position.
         _instruments.AddHandler(PointerMovedEvent, (_, e) =>
         {
             if (_dragIndex < 0)
@@ -155,11 +357,9 @@ public sealed partial class MainWindow
             }
 
             int index = InstrumentIndexAt(e);
-            if (index < 0 || index == _dragIndex || index >= _session.Song.Instruments.Count
-                || _dragIndex >= _session.Song.Instruments.Count)
+            if (index < 0 || index == _dragIndex || InstrumentInSlot(_dragIndex) is not { } dragged)
                 return;
 
-            var dragged = _session.Song.Instruments[_dragIndex];
             _session.MoveInstrument(dragged, index + 1);
             SelectInstrumentNumber(dragged.Number);
             _dragIndex = index;
@@ -169,11 +369,38 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The row under the pointer, or -1.</summary>
-    private int InstrumentIndexAt(PointerEventArgs e)
+    private int InstrumentIndexAt(RoutedEventArgs e)
     {
-        var hit = _instruments.InputHitTest(e.GetPosition(_instruments)) as Visual;
+        var at = e switch
+        {
+            PointerEventArgs pointer => pointer.GetPosition(_instruments),
+            TappedEventArgs tap => tap.GetPosition(_instruments),
+            _ => default(Point?),
+        };
+        if (at is not { } point)
+            return -1;
+
+        var hit = _instruments.InputHitTest(point) as Visual;
         var item = hit as ListBoxItem ?? hit?.FindAncestorOfType<ListBoxItem>();
         return item is null ? -1 : _instruments.IndexFromContainer(item);
+    }
+
+    /// <summary>The instrument in a row - slot row + 1 - or null for an empty one.</summary>
+    private Instrument? InstrumentInSlot(int row) =>
+        row < 0 ? null : _session.Song.Instruments.FirstOrDefault(i => i.Number == row + 1);
+
+    /// <summary>The first empty slot, which offers "+ New instrument"; -1 when all 16 are used.</summary>
+    private int NewInstrumentRow
+    {
+        get
+        {
+            for (int row = 0; row < SongValidator.MaxInstrumentNumber; row++)
+            {
+                if (InstrumentInSlot(row) is null)
+                    return row;
+            }
+            return -1;
+        }
     }
 
     private bool InstrumentsFull => _session.Song.Instruments.Count >= SongValidator.MaxInstrumentNumber;
@@ -183,13 +410,21 @@ public sealed partial class MainWindow
         _listing = true;
         try
         {
-            int selected = Math.Max(0, _instruments.SelectedIndex);
-            var rows = _session.Song.Instruments.Select(Describe).ToList();
-            if (!InstrumentsFull)
-                rows.Add(NewInstrumentText);
+            int selected = _instruments.SelectedIndex;
+            int newRow = NewInstrumentRow;
+            var rows = new List<InstrumentSlot>(SongValidator.MaxInstrumentNumber);
+            for (int row = 0; row < SongValidator.MaxInstrumentNumber; row++)
+            {
+                rows.Add(InstrumentInSlot(row) is { } instrument
+                    ? new InstrumentSlot($"{instrument.Number:00}", InstrumentNames.Display(instrument), DescribePrograms(instrument), EditorTheme.Body)
+                    : new InstrumentSlot("", row == newRow ? NewInstrumentText : "", "", row == newRow ? EditorTheme.Title : EditorTheme.Subtitle));
+            }
             _instruments.ItemsSource = rows;
-            if (_session.Song.Instruments.Count > 0)
-                _instruments.SelectedIndex = Math.Min(selected, _session.Song.Instruments.Count - 1);
+
+            // The same slot as before, or the first instrument when nothing was.
+            _instruments.SelectedIndex = selected >= 0 ? selected
+                : _session.Song.Instruments.Count > 0 ? _session.Song.Instruments.Min(i => i.Number) - 1
+                : -1;
         }
         finally
         {
@@ -199,9 +434,9 @@ public sealed partial class MainWindow
         UpdateInstrumentButtons();
     }
 
-    /// <summary>Number, name, and the programs it carries - an arpeggio or a filter sweep is
-    /// otherwise invisible until the instrument is opened.</summary>
-    private static string Describe(Instrument instrument)
+    /// <summary>The programs an instrument carries - an arpeggio or a filter sweep is otherwise
+    /// invisible until the instrument is opened - or &lt;Edit&gt; when it has none.</summary>
+    private static string DescribePrograms(Instrument instrument)
     {
         var programs = new List<string>(3);
         if (instrument.Arpeggio.Count > 0)
@@ -210,11 +445,7 @@ public sealed partial class MainWindow
             programs.Add($"FLT{instrument.Filter.Count}");
         if (!instrument.HasDefaultPulse)
             programs.Add("PW");
-
-        string name = InstrumentNames.Display(instrument);
-        return programs.Count == 0
-            ? $"{instrument.Number:00}  {name}"
-            : $"{instrument.Number:00}  {name,-22} {string.Join(" ", programs)}";
+        return programs.Count > 0 ? string.Join(" ", programs) : "<Edit>";
     }
 
     private void UpdateInstrumentButtons()

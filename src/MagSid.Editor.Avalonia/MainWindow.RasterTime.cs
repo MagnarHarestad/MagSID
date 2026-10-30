@@ -38,7 +38,9 @@ public sealed partial class MainWindow
         {
             var size = SongSizeCalculator.Measure(_session.Song.WithUnusedPatternsRemoved());
             int bytes = size.TotalBytes;
-            _songLength.Text = $"Song Length: ${bytes:X4} ({bytes} bytes)";
+            // The last byte's offset from $1000, as 1.64 shows it - what lines up with the
+            // assembler's memory map and VICE. The tooltip gives the true count.
+            _songLength.Text = $"Song Length: ${size.EndAddress - 0x1000:X3}";
 
             int loadAddress = EditorSettings.SidLoadAddress;
             ToolTip.SetTip(_songLength, string.Join(Environment.NewLine,

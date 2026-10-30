@@ -13,8 +13,8 @@ using AvColor = Avalonia.Media.Color;
 namespace MagSid.Editor.Avalonia;
 
 /// <summary>
-/// The instrument editor under the list, as the Windows editor's InstrumentEditorPanel: the name,
-/// then four small captioned groups - envelope, pulse, hard restart, vibrato - that wrap a group
+/// The instrument editor under the list, as the Windows editor's InstrumentEditorPanel: four
+/// small captioned groups - envelope, pulse, hard restart, vibrato - that wrap a group
 /// at a time when the column is narrow; one grid of the programs, a row a frame, with the
 /// wavetable (Wave), the note program (Note, and its byte as Hex) and the filter program (Filter,
 /// Mode/Vol, Res+Voice, Cutoff, Sweep) side by side, since all three take a step each frame from
@@ -29,16 +29,16 @@ namespace MagSid.Editor.Avalonia;
 /// and only then writes, so a mistake never leaves the instrument half changed. While the song
 /// plays, each program's column lights the steps it has played and where it is now.
 /// </summary>
-internal sealed class InstrumentEditorView : StackPanel
+internal sealed class InstrumentEditorView : DockPanel
 {
-    private static readonly FontFamily Mono = new("Consolas, Menlo, DejaVu Sans Mono, monospace");
-    private static readonly IBrush Label = new SolidColorBrush(AvColor.FromRgb(0x8A, 0x8A, 0xA8));
-    private static readonly IBrush Body = new SolidColorBrush(AvColor.FromRgb(0xD2, 0xD2, 0xDE));
-    private static readonly IBrush Heading = new SolidColorBrush(AvColor.FromRgb(0xAA, 0xAA, 0xFF));
+    private static readonly FontFamily Mono = EditorTheme.MonoFont;
+    private static readonly IBrush Label = EditorTheme.Subtitle;
+    private static readonly IBrush Body = EditorTheme.Body;
+    private static readonly IBrush Heading = EditorTheme.Heading;
     private static readonly IBrush Warning = new SolidColorBrush(AvColor.FromRgb(0xFF, 0xB0, 0x5C));
-    private static readonly IBrush FrameBrush = new SolidColorBrush(AvColor.FromRgb(0x2A, 0x2A, 0x44));
-    private static readonly IBrush HeaderBackground = new SolidColorBrush(AvColor.FromRgb(0x28, 0x28, 0x3C));
-    private static readonly IBrush MonoInk = new SolidColorBrush(AvColor.FromRgb(0x9E, 0xC8, 0xFF));
+    private static readonly IBrush FrameBrush = EditorTheme.Border;
+    private static readonly IBrush HeaderBackground = EditorTheme.Button;
+    private static readonly IBrush MonoInk = EditorTheme.Mono;
 
     // Over the field background: 10% for a step this playback has been through, brighter for
     // where the program is right now - the dim trail is what shows an unused tail once the song
@@ -52,24 +52,22 @@ internal sealed class InstrumentEditorView : StackPanel
     private static readonly string[] NoteChoices = [RootLabel, .. NoteName.AllNotes.Select(n => n.ToString()), ""];
     private static readonly string[] FilterTypes = ["", "Sweep", "Setup"];
 
-    // The program grid's columns: their headings and widths.
-    private static readonly (string Heading, double Width)[] Columns =
-    [
-        ("#", 30), ("Wave", 44), ("Note", 72), ("Hex", 40), ("Filter", 76),
-        ("Mode/Vol", 64), ("Res+Voice", 70), ("Cutoff", 52), ("Sweep", 52),
-    ];
+    // The program grid's columns, as 1.64's sized themselves to their headings; Sweep takes what
+    // is left, so the table ends at its last cell.
+    private static readonly string[] Headings = ["#", "Wave", "Note", "Hex", "Filter", "Mode/Vol", "Res+Voice", "Cutoff", "Sweep"];
+    private const string ColumnWidths = "34,50,70,46,74,72,80,60,*";
+    private const double CellHeight = 22;
 
     /// <summary>What a freshly enabled Vibrator starts from: delay 2 (8 frames), speed 4, depth
     /// $20 - slow and wide enough to hear on a lead without needing to be tuned first.</summary>
     private const byte DefaultVibratoDelaySpeed = 0x24;
     private const byte DefaultVibratoDepth = 0x20;
 
-    private readonly TextBox _name = new() { Width = 260, FontFamily = Mono };
     private readonly TextBox _attackDecay = Hex();
     private readonly TextBox _sustainRelease = Hex();
     private readonly ToggleButton _noHardRestart = Toggle("No HR");
     private readonly ToggleButton _softHardRestart = Toggle("Soft HR");
-    private readonly NumericUpDown _pulseWidth = new() { Minimum = 0, Maximum = 15, Width = 100, FormatString = "0" };
+    private readonly NumericUpDown _pulseWidth = new() { Minimum = 0, Maximum = 15, Width = 46, FormatString = "0", FontFamily = Mono, Foreground = MonoInk };
     private readonly TextBox _pulseSweep = Hex();
     private readonly ToggleButton _pulseContinuous = Toggle("Cont.");
     private readonly ToggleButton _vibrator = Toggle("Vibrator");
@@ -89,10 +87,10 @@ internal sealed class InstrumentEditorView : StackPanel
             "Hold - stay on the last note",
             "Root - settle on the row's own note",
         },
-        Width = 330,
+        Width = 236,
     };
     private readonly TextBlock _loopLabel = Caption("from step");
-    private readonly NumericUpDown _loopFrom = new() { Minimum = 0, Maximum = 63, Width = 100, FormatString = "0" };
+    private readonly NumericUpDown _loopFrom = new() { Minimum = 0, Maximum = 63, Width = 60, FormatString = "0", FontFamily = Mono, Foreground = MonoInk };
     private readonly TextBlock _problem = new() { Foreground = Warning, TextWrapping = TextWrapping.Wrap };
 
     private Instrument? _instrument;
@@ -109,12 +107,14 @@ internal sealed class InstrumentEditorView : StackPanel
 
     public InstrumentEditorView()
     {
-        Spacing = 6;
+        // 1.64's panel: the groups along the top, "after the last note" pinned to the bottom, and
+        // the program table taking all the height between them.
+        Margin = new Thickness(12);
 
-        Children.Add(Row(Caption("Name"), _name));
-        Children.Add(new WrapPanel
+        var groups = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
+            Margin = new Thickness(4, 4, 4, 2),
             Children =
             {
                 Group("ENVELOPE", Caption("A/D"), _attackDecay, Caption("S/R"), _sustainRelease),
@@ -122,11 +122,20 @@ internal sealed class InstrumentEditorView : StackPanel
                 Group("HARD RESTART", _noHardRestart, _softHardRestart),
                 Group("VIBRATO", _vibrator, Caption("D/S"), _vibDelaySpeed, Caption("Depth"), _vibDepth),
             },
-        });
+        };
 
-        var header = new StackPanel { Orientation = Orientation.Horizontal, Background = HeaderBackground };
-        foreach (var (heading, width) in Columns)
-            header.Children.Add(new TextBlock { Text = heading, Width = width, Foreground = Heading, FontSize = 12, Margin = new Thickness(2, 3) });
+        var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse(ColumnWidths), Background = HeaderBackground, Height = CellHeight };
+        for (int column = 0; column < Headings.Length; column++)
+        {
+            var cell = new Border
+            {
+                BorderBrush = FrameBrush,
+                BorderThickness = new Thickness(0, 0, 1, 1),
+                Child = new TextBlock { Text = Headings[column], Foreground = Heading, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0) },
+            };
+            Grid.SetColumn(cell, column);
+            header.Children.Add(cell);
+        }
 
         var menu = _rowMenu;
         menu.Opening += (_, _) => menu.ItemsSource = new Control[]
@@ -146,26 +155,36 @@ internal sealed class InstrumentEditorView : StackPanel
             Entry("Down", () => { MoveCurrentRow(+1); Commit(); }, _currentRow is not null),
         };
 
+        var table = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        table.Children.Add(header);
+        table.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = _rows,
+        });
         var grid = new Border
         {
             BorderBrush = FrameBrush,
             BorderThickness = new Thickness(1),
             Background = FieldBackground,
-            MinHeight = 120,
             ContextMenu = menu,
-            Child = new StackPanel { Children = { header, _rows } },
+            Child = table,
         };
-        Children.Add(new ScrollViewer
-        {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content = grid,
-        });
 
-        Children.Add(Row(Caption("After the last note:"), _ending, _loopLabel, _loopFrom));
+        var ending = Row(Caption("After the last note:"), _ending, _loopLabel, _loopFrom);
+        ending.Margin = new Thickness(0, 6, 0, 0);
+
+        SetDock(groups, Dock.Top);
+        SetDock(_problem, Dock.Bottom);
+        SetDock(ending, Dock.Bottom);
+        Children.Add(groups);
         Children.Add(_problem);
+        Children.Add(ending);
+        Children.Add(grid);
 
-        foreach (var box in new[] { _name, _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
+        foreach (var box in new[] { _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
             box.LostFocus += (_, _) => Commit();
         foreach (var toggle in new[] { _noHardRestart, _softHardRestart, _pulseContinuous })
             toggle.IsCheckedChanged += (_, _) => Commit();
@@ -199,13 +218,6 @@ internal sealed class InstrumentEditorView : StackPanel
     /// <summary>The instrument changed - the song is dirty and the list's names may differ.</summary>
     public event Action? Edited;
 
-    /// <summary>Puts the caret in the name, all of it selected - a new instrument is named first.</summary>
-    public void FocusName()
-    {
-        _name.Focus();
-        _name.SelectAll();
-    }
-
     public void Load(Instrument? instrument)
     {
         _instrument = instrument;
@@ -218,7 +230,6 @@ internal sealed class InstrumentEditorView : StackPanel
             if (instrument is null)
                 return;
 
-            _name.Text = instrument.Name;
             _attackDecay.Text = instrument.AttackDecay.ToString("x2");
             _sustainRelease.Text = instrument.SustainRelease.ToString("x2");
             _noHardRestart.IsChecked = instrument.NoHardRestart;
@@ -319,7 +330,7 @@ internal sealed class InstrumentEditorView : StackPanel
 
     private sealed class ProgramRow
     {
-        public required StackPanel Panel { get; init; }
+        public required Grid Panel { get; init; }
         public required TextBlock Step { get; init; }
         public required TextBox Wave { get; init; }
         public required ComboBox Note { get; init; }
@@ -338,18 +349,26 @@ internal sealed class InstrumentEditorView : StackPanel
     {
         var row = new ProgramRow
         {
-            Panel = new StackPanel { Orientation = Orientation.Horizontal },
-            Step = new TextBlock { Width = Columns[0].Width, Foreground = Label, FontFamily = Mono, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) },
-            Wave = Cell(Columns[1].Width),
-            Note = Choice(Columns[2].Width, NoteChoices),
-            Hex = Cell(Columns[3].Width),
-            Type = Choice(Columns[4].Width, FilterTypes),
-            Mode = Cell(Columns[5].Width),
-            Res = Cell(Columns[6].Width),
-            Cutoff = Cell(Columns[7].Width),
-            Sweep = Cell(Columns[8].Width),
+            Panel = new Grid { ColumnDefinitions = ColumnDefinitions.Parse(ColumnWidths), Height = CellHeight },
+            Step = new TextBlock { Foreground = MonoInk, FontFamily = Mono, FontSize = EditorTheme.MonoSize, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0) },
+            Wave = Cell(),
+            Note = Choice(NoteChoices),
+            Hex = Cell(),
+            Type = Choice(FilterTypes),
+            Mode = Cell(),
+            Res = Cell(),
+            Cutoff = Cell(),
+            Sweep = Cell(),
         };
-        row.Panel.Children.AddRange([row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep]);
+
+        // Each cell in a frame of grid lines, as a DataGridView draws them.
+        Control[] cells = [row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep];
+        for (int column = 0; column < cells.Length; column++)
+        {
+            var frame = new Border { BorderBrush = FrameBrush, BorderThickness = new Thickness(0, 0, 1, 1), Child = cells[column] };
+            Grid.SetColumn(frame, column);
+            row.Panel.Children.Add(frame);
+        }
 
         bool loading = _loading;
         _loading = true;
@@ -548,7 +567,6 @@ internal sealed class InstrumentEditorView : StackPanel
             var (waveform, waves, notes, ending) = ReadWavetable(instrument);
             var filter = ReadFilter();
 
-            instrument.Name = (_name.Text ?? "").Trim();
             instrument.Waveform = waveform;
             instrument.AttackDecay = attackDecay;
             instrument.SustainRelease = sustainRelease;
@@ -711,52 +729,68 @@ internal sealed class InstrumentEditorView : StackPanel
         return item;
     }
 
-    private static TextBox Hex() => new() { Width = 44, FontFamily = Mono, MaxLength = 2, TextAlignment = TextAlignment.Center };
-
-    private static TextBox Cell(double width) => new()
+    private static TextBox Hex() => new()
     {
-        Width = width,
-        MinHeight = 0,
-        Height = 24,
-        Padding = new Thickness(4, 1),
+        Width = 28,
+        Height = 20,
+        Padding = new Thickness(0),
         FontFamily = Mono,
-        FontSize = 12,
+        FontSize = EditorTheme.MonoSize,
         Foreground = MonoInk,
-        Background = FieldBackground,
-        BorderThickness = new Thickness(0, 0, 1, 1),
-        BorderBrush = FrameBrush,
-        CornerRadius = new CornerRadius(0),
+        MaxLength = 2,
+        TextAlignment = TextAlignment.Center,
+        Margin = new Thickness(2, 0),
     };
 
-    private static ComboBox Choice(double width, string[] items) => new()
+    /// <summary>A text cell of the program table: the grid line is its frame's, not its own.</summary>
+    private static TextBox Cell() => new()
     {
-        ItemsSource = items,
-        Width = width,
         MinHeight = 0,
-        Height = 24,
         Padding = new Thickness(4, 0),
         FontFamily = Mono,
-        FontSize = 12,
+        FontSize = EditorTheme.MonoSize,
         Foreground = MonoInk,
         Background = FieldBackground,
-        BorderThickness = new Thickness(0, 0, 1, 1),
-        BorderBrush = FrameBrush,
-        CornerRadius = new CornerRadius(0),
+        BorderThickness = new Thickness(0),
+        Classes = { "cell" },
     };
 
-    private static ToggleButton Toggle(string text) => new() { Content = text, Padding = new Thickness(8, 2) };
+    private static ComboBox Choice(string[] items) => new()
+    {
+        ItemsSource = items,
+        MinHeight = 0,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        VerticalAlignment = VerticalAlignment.Stretch,
+        Padding = new Thickness(4, 0, 0, 0),
+        FontFamily = Mono,
+        FontSize = EditorTheme.MonoSize,
+        Foreground = MonoInk,
+        Background = FieldBackground,
+        BorderThickness = new Thickness(0),
+        Classes = { "cell" },
+    };
+
+    /// <summary>A button that stays down, as 1.64's flat check boxes drawn as buttons.</summary>
+    private static ToggleButton Toggle(string text) => new()
+    {
+        Content = text,
+        Padding = new Thickness(6, 1),
+        Margin = new Thickness(6, 0, 0, 0),
+        Background = EditorTheme.Background,
+        BorderBrush = Body,
+    };
 
     private static TextBlock Caption(string text) => new()
     {
         Text = text,
         Foreground = Body,
         VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, 0, 2, 0),
+        Margin = new Thickness(3, 0, 0, 0),
     };
 
     private static StackPanel Row(params Control[] children)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var child in children)
             row.Children.Add(child);
         return row;
@@ -767,14 +801,14 @@ internal sealed class InstrumentEditorView : StackPanel
     {
         BorderBrush = FrameBrush,
         BorderThickness = new Thickness(1),
-        Padding = new Thickness(6, 3, 8, 5),
-        Margin = new Thickness(0, 0, 8, 6),
+        Padding = new Thickness(4, 3, 6, 4),
+        Margin = new Thickness(0, 0, 8, 4),
         Child = new StackPanel
         {
             Spacing = 2,
             Children =
             {
-                new TextBlock { Text = caption, Foreground = Label, FontSize = 10, FontWeight = FontWeight.Bold },
+                new TextBlock { Text = caption, Foreground = Label, FontSize = 9, FontWeight = FontWeight.Bold, Margin = new Thickness(3, 0, 0, 1) },
                 Row(fields),
             },
         },
