@@ -149,6 +149,10 @@ internal static class Opcodes
         // Implied.
         { ("clc", AddressMode.Implied), 0x18 },
         { ("sec", AddressMode.Implied), 0x38 },
+        { ("txa", AddressMode.Implied), 0x8A },
+
+        // SBX in the No More Secrets naming, axs in c6510's: X = (A & X) - imm, flags as cmp. Stable.
+        { ("axs", AddressMode.Immediate), 0xCB },
         { ("dex", AddressMode.Implied), 0xCA },
         { ("inx", AddressMode.Implied), 0xE8 },
         { ("iny", AddressMode.Implied), 0xC8 },

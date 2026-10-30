@@ -42,10 +42,13 @@ public static class SongSizeCalculator
     // 2026-10-30: slide and vibrato 30, 32 and 40 bytes less - Voice_SetFreq joined to the
     // frequency write, and the tests for a rate or a depth of 0 gone. Then 7 less bare and 1 less
     // with either: Voice_SetFreq falls out of the note program, whose loop moved ahead of the entry.
-    private static readonly int PlayerBare = 451 + HardRestartBytes;
-    private static readonly int PlayerVibrato = 533 + HardRestartBytes;
-    private static readonly int PlayerSlide = 498 + HardRestartBytes;
-    private static readonly int PlayerVibratoAndSlide = 559 + HardRestartBytes;
+    // Then 33 less, 31 with slides only: X runs 0, 7, 14, as in GoatTracker and SID Duzz It, so there
+    // is no SID offset to load and Y is free for the instrument; voice_note went, and Voice_Tick
+    // falls into Voice_PlayCurrent.
+    private static readonly int PlayerBare = 418 + HardRestartBytes;
+    private static readonly int PlayerVibrato = 500 + HardRestartBytes;
+    private static readonly int PlayerSlide = 467 + HardRestartBytes;
+    private static readonly int PlayerVibratoAndSlide = 526 + HardRestartBytes;
 
     /// <summary>Keeping the waveform through the hard restart loads and masks it rather than
     /// loading $08 - two bytes. The four figures above are the $08 player's.</summary>
@@ -119,17 +122,18 @@ public static class SongSizeCalculator
         return new SongSize(
             PlayerBytes: player,
             PatternBytes: patternBytes,
-            // tbl_rows_lo and tbl_rows_hi, each carrying a dummy entry 0 so a 1-based pattern
-            // number indexes them as it stands.
-            PatternPointerBytes: 2 * (song.Patterns.Count + 1),
+            // tbl_rows_lo and tbl_rows_hi, indexed by 1-based pattern number from a label one byte
+            // before each.
+            PatternPointerBytes: 2 * song.Patterns.Count,
             InstrumentTableBytes: 7 * instrumentCount + 2 * VibratoTableEntries(song),
-            WavetablePoolBytes: WavetablePoolLength(song),
-            ArpeggioPoolBytes: ArpeggioPoolLength(song),
-            FilterPoolBytes: FilterPoolLength(song),
+            // Offset 0 of a pool means "nothing running" and is never read, so it is not emitted.
+            WavetablePoolBytes: WavetablePoolLength(song) - 1,
+            ArpeggioPoolBytes: ArpeggioPoolLength(song) - 1,
+            FilterPoolBytes: FilterPoolLength(song) - 1,
             // Per channel: the pattern numbers, a $00 terminator and the restart position.
             OrderBytes: song.ChannelOrders.Sum(o => o.Tokens.Count + 2),
-            // note_freq_low and note_freq_high, both with a dummy entry 0.
-            NoteTableBytes: 2 * (DistinctNoteCount(song) + 1));
+            // note_freq_low and note_freq_high, from labels one byte before each: no note is 0.
+            NoteTableBytes: 2 * DistinctNoteCount(song));
     }
 
     /// <summary>

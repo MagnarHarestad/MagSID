@@ -202,6 +202,15 @@ internal sealed class PlayerCpu
             case "beq": Branch(_z, ea); break;
             case "clc": _c = false; break;
             case "sec": _c = true; break;
+            case "txa": _a = _x; SetNz(_a); break;
+            case "axs":
+            {
+                int r = (_a & _x) - Read(ea);
+                _c = r >= 0;
+                _x = r & 0xFF;
+                SetNz(_x);
+                break;
+            }
             case "bit":
             {
                 int v = Read(ea);

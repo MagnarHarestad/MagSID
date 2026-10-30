@@ -78,26 +78,24 @@ public static class SongImageBuilder
         }
 
         // One shared pointer pair indexed by 1-based pattern number, so a pattern used by several
-        // channels points at the same rows. Entry 0 is a dummy: 0 is the song-order end marker, so
-        // a pattern can never be numbered 0 and the table would otherwise need biasing at runtime.
-        asm.Define(tables.TblRowsLo);
-        asm.Byte(0);
+        // channels points at the same rows. 0 is the song-order end marker, so a pattern can never
+        // be numbered 0: the labels sit one byte before the tables and entry 0 does not exist.
+        asm.DefineBefore(tables.TblRowsLo);
         foreach (var label in patternLabels)
             asm.Byte(LowByte(label));
 
-        asm.Define(tables.TblRowsHi);
-        asm.Byte(0);
+        asm.DefineBefore(tables.TblRowsHi);
         foreach (var label in patternLabels)
             asm.Byte(HighByte(label));
 
         EmitTable(asm, tables.AdTable, instrumentTables.AttackDecay);
         EmitTable(asm, tables.SrTable, instrumentTables.SustainRelease);
         EmitTable(asm, tables.WtStart, instrumentTables.WavetableStart);
-        EmitTable(asm, tables.WtData, instrumentTables.WavetablePool);
+        EmitWithoutEntry0(asm, tables.WtData, instrumentTables.WavetablePool);
         EmitTable(asm, tables.ArpStart, instrumentTables.ArpeggioStart);
-        EmitTable(asm, tables.ArpData, instrumentTables.ArpeggioPool);
+        EmitWithoutEntry0(asm, tables.ArpData, instrumentTables.ArpeggioPool);
         EmitTable(asm, tables.FltStart, instrumentTables.FilterStart);
-        EmitTable(asm, tables.FltData, instrumentTables.FilterPool);
+        EmitWithoutEntry0(asm, tables.FltData, instrumentTables.FilterPool);
         EmitTable(asm, tables.PwInit, instrumentTables.PulseInit);
         EmitTable(asm, tables.PwAdd, instrumentTables.PulseAdd);
 
@@ -110,10 +108,18 @@ public static class SongImageBuilder
         EmitTable(asm, tables.TblSongOrder, order.Bytes);
 
         var (freqLow, freqHigh) = notes.FrequencyTables();
-        EmitTable(asm, tables.NoteFreqLow, freqLow);
-        EmitTable(asm, tables.NoteFreqHigh, freqHigh);
+        EmitWithoutEntry0(asm, tables.NoteFreqLow, freqLow);
+        EmitWithoutEntry0(asm, tables.NoteFreqHigh, freqHigh);
 
         return asm.Assemble();
+    }
+
+    /// <summary>A table the player never reads entry 0 of - offset 0 of a pool means "nothing
+    /// running", and no note is number 0. The label sits one byte before, so that entry costs nothing.</summary>
+    private static void EmitWithoutEntry0(Emitter6502 asm, Label label, byte[] values)
+    {
+        asm.DefineBefore(label);
+        asm.Bytes(values.Skip(1));
     }
 
     /// <summary>An empty table is still one byte. Startup\Tables.s's EmitByteTable writes ".byte 0"

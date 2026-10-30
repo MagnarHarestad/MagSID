@@ -14,7 +14,7 @@ exactly — note for note, byte for byte. A song sounds in the editor as it will
 exported file is the same image the assembly player would have produced.
 
 The player is a low-memory-footprint rewrite of a GoatTracker-style player, written in c6510 assembly:
-451 bytes of code with neither optional effect, 533 with vibrato, 498 with slides and 559 with both,
+418 bytes of code with neither optional effect, 500 with vibrato, 467 with slides and 526 with both,
 plus 10 bytes when an instrument uses soft hard restart and 4 when two or more instruments in a song
 with vibrato have none - which is what lets its tables, two bytes an instrument, cover only those that
 do. Code for an effect is only assembled when a

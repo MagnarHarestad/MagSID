@@ -62,6 +62,10 @@ public sealed class Emitter6502(int origin)
     /// <summary>Declares and places a label in one step, for the common case.</summary>
     public Label DefineHere(string name) => Define(NewLabel(name));
 
+    /// <summary>A label one byte before here, for a table whose entry 0 is never read: it reads
+    /// whatever comes before, and only the rest of the table has to exist.</summary>
+    public void DefineBefore(Label label) => label.Address = Pc - 1;
+
     // --- raw data ------------------------------------------------------------------------------
 
     public void Byte(int value) => _bytes.Add((byte)value);
@@ -131,6 +135,8 @@ public sealed class Emitter6502(int origin)
 
     public void Clc() => Emit("clc", None);
     public void Sec() => Emit("sec", None);
+    public void Txa() => Emit("txa", None);
+    public void Axs(Operand operand) => Emit("axs", operand);
     public void Dex() => Emit("dex", None);
     public void Inx() => Emit("inx", None);
     public void Iny() => Emit("iny", None);

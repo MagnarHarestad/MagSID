@@ -108,3 +108,5 @@ tya Implied 98
 sec Implied 38
 bit Absolute 2C
 cpy Immediate C0
+txa Implied 8A
+axs Immediate CB

@@ -95,6 +95,18 @@ keeps an entry of `$00` instead: two table bytes against the compare's four. `cp
 `opcodes.txt`; these images carry it, which is c6510's word for it. Images without vibrato came out byte for
 byte as before, and old and new held the same SID state after every one of 30000 frames, on every song.
 
+All 26 were reassembled again on **2026-10-30**, 40 bytes smaller, 38 with slides and no vibrato - tricks from
+GoatTracker and SID Duzz It. X runs 0, 7, 14 and the per-channel arrays sit in zero page at that stride, seven
+interleaved across three rows of seven, with the single variables in what the last row leaves: one index reaches
+a voice and its SID registers, so `SID_channel_offset` and `ZP_ch` are gone, Y is free for the instrument, and
+`voice_orderpos` moved to zero page, seeded by two `move8`. Channel loops step with `txa` / `axs #7` (`CB 07`),
+and `txa Implied 8A` and `axs Immediate CB` joined `opcodes.txt` after c6510 assembled them so. `voice_note` went:
+the note stays in A from `.playrow`, and `Voice_Tick` falls into `Voice_PlayCurrent`, with `Voice_NoteOff` after it.
+The pool, note and pattern-pointer tables lost entry 0, never read, by reading through `label-1`. Zero page: 48
+bytes, 69 with vibrato, 63 with slides, 80 with both. The Musicshower was not carried over: it reads `voice_note`.
+Old 26 rebuilt first; old and new then held the same SID state for 30000 frames on every song in `SongData` and
+the fixtures. `GateOff\` was checked against the emitter with `KeepsWaveform` switched on: all its image tests passed.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
 the release, funk speed and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.

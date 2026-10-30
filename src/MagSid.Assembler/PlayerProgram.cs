@@ -60,6 +60,11 @@ public sealed record PlayerParameters(int SongSpeed, int OrderStart1, int OrderS
 /// export has no use for, and the export driver does not define musicshower either - so including
 /// them would produce an image the assembler never builds.
 ///
+/// X runs 0, 7, 14 through every per-voice routine: the arrays sit at that stride in zero page (see
+/// ZeroPageLayout) and so do the SID's voices, so one index reaches both, and Y is free for the
+/// instrument. The routines are in the order they fall through: Voice_Tick into Voice_PlayCurrent,
+/// Voice_NoteOff in reach of its branch.
+///
 /// PlayerImageTests compares the result byte for byte against what c6510 assembles from the real
 /// source. That comparison is the only reason to trust any of this: a transcription slip here
 /// yields a player that runs and sounds subtly wrong, which no amount of reading catches.
@@ -106,25 +111,32 @@ public static class PlayerProgram
         var voiceNoteOff = asm.NewLabel("Voice_NoteOff");
         var voiceAdvanceOrder = asm.NewLabel("Voice_AdvanceOrder");
         var voiceSetFreq = asm.NewLabel("Voice_SetFreq");
-        var voicePlayCurrent = asm.NewLabel("Voice_PlayCurrent");
         var voiceAutomation = asm.NewLabel("Voice_Automation");
         var voiceTick = asm.NewLabel("Voice_Tick");
         var onBeatPlaySong = asm.NewLabel("ONbeat.PlaySong");
-        var voiceOrderPos = asm.NewLabel("voice_orderpos");
-        var sidChannelOffset = asm.NewLabel("SID_channel_offset");
 
         // --- JMPs for Init and Play ---
         asm.Jmp(musicInit);
         asm.Jmp(musicPlay);
 
-        EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff, sidChannelOffset);
-        EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder, voiceOrderPos);
-        EmitVoicePlayCurrent(asm, tables, features, zp, voicePlayCurrent, voiceNoteOff, voiceSetFreq, sidChannelOffset);
-        EmitVoiceAutomation(asm, tables, parameters, features, zp, voiceAutomation, voiceSetFreq, sidChannelOffset);
+        EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder);
+        EmitVoiceAutomation(asm, tables, parameters, features, zp, voiceAutomation, voiceSetFreq);
         EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder);
-        EmitPlayerData(asm, parameters, voiceOrderPos, sidChannelOffset);
         EmitMusicPlay(asm, tables, parameters, features, zp, musicPlay, voiceAutomation, voiceTick, onBeatPlaySong);
-        EmitVoiceTick(asm, tables, features, zp, voiceTick, voicePlayCurrent, voiceAdvanceOrder);
+        EmitVoiceTick(asm, tables, features, zp, voiceTick, voiceAdvanceOrder);
+        EmitVoicePlayCurrent(asm, tables, features, zp, voiceNoteOff, voiceSetFreq);
+        EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff);
+    }
+
+    /// <summary>The first voice's index, for a loop running down to 0.</summary>
+    private static Operand LastVoice(PlayerParameters parameters) => Imm((parameters.Channels - 1) * ZeroPageLayout.VoiceStride);
+
+    /// <summary>On to the next voice down, back to <paramref name="loop"/> while there is one.</summary>
+    private static void NextVoice(Emitter6502 asm, Label loop)
+    {
+        asm.Txa();
+        asm.Axs(Imm(ZeroPageLayout.VoiceStride));
+        asm.Bpl(loop);
     }
 
     private static void RequireTables(SongTableLabels tables, PlayerFeatures features)
@@ -137,31 +149,29 @@ public static class PlayerProgram
     /// instantly silent otherwise, masking the envelope's release. The wavetable is parked on a
     /// $00 hold rather than stopped, so it never puts the gate back on while pulse, note program,
     /// vibrato and slide run on through the release.</summary>
-    private static void EmitVoiceNoteOff(Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label entry, Label sidChannelOffset)
+    private static void EmitVoiceNoteOff(Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label entry)
     {
         asm.Define(entry);
-        asm.Ldy(MemX(sidChannelOffset));
         asm.Lda(MemX(zp.VoiceLastWaveform));
         asm.And(Imm(0xFE));
-        asm.Sta(MemY(SidControl));
+        asm.Sta(MemX(SidControl));
         asm.Move8(Imm(tables.WtHold), MemX(zp.VoiceWtPos));
         asm.Rts();
     }
 
     /// <summary>Song order: $00 ends a list and the next byte is the absolute restart position. All
-    /// three channels share one array, so voice_orderpos indexes it absolutely.</summary>
-    private static void EmitVoiceAdvanceOrder(
-        Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label entry, Label voiceOrderPos)
+    /// three channels' lists share one array.</summary>
+    private static void EmitVoiceAdvanceOrder(Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label entry)
     {
         asm.Define(entry);
         var read = asm.DefineHere(".read");
-        asm.Ldy(MemX(voiceOrderPos));
+        asm.Ldy(MemX(zp.VoiceOrderPos));
         asm.Lda(MemY(tables.TblSongOrder));
         var endOfList = asm.NewLabel(".endoflist");
         asm.Beq(endOfList);                         // the common path falls through
         asm.Sta(MemX(zp.VoicePatternIdx));
         // Not iny/tya/sta: Y is dead from here, so incrementing the array in place is cheaper.
-        asm.Inc(MemX(voiceOrderPos));
+        asm.Inc(MemX(zp.VoiceOrderPos));
         asm.Lda(Imm(0));
         asm.Sta(MemX(zp.VoiceEvent));
         asm.Sta(MemX(zp.VoiceLoopCounter));
@@ -170,65 +180,56 @@ public static class PlayerProgram
         asm.Define(endOfList);
         asm.Iny();
         asm.Lda(MemY(tables.TblSongOrder));         // absolute restart position
-        asm.Sta(MemX(voiceOrderPos));
+        asm.Sta(MemX(zp.VoiceOrderPos));
         asm.Jmp(read);
     }
 
+    /// <summary>A = the row's note or command, X = voice. Voice_Tick falls into this.</summary>
     private static void EmitVoicePlayCurrent(
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label voiceNoteOff, Label voiceSetFreq, Label sidChannelOffset)
+        Label voiceNoteOff, Label voiceSetFreq)
     {
-        asm.Define(entry);
         var leaveSounding = asm.NewLabel(".leavesounding");
 
-        asm.Lda(MemX(zp.VoiceNote));
         asm.Cmp(Imm(NoteOff));
         asm.Beq(voiceNoteOff);
         // bcs, not a second cmp: the compare above already left C=1 for everything above $D0, so
         // one branch separates all three cases. A wait row lets whatever is playing keep going.
         asm.Bcs(leaveSounding);
 
-        // The row's own note, kept for a ROOT step in the note program. voice_note cannot serve: a
-        // later wait row overwrites it with ROW_WAIT, which is not an index into the table.
+        // The row's own note, kept for a ROOT step in the note program.
         asm.Sta(MemX(zp.VoiceRoot));
 
-        // NOHR check before Voice_SetFreq clobbers A/Y: bit 5 of the pw_init byte belonging to the
-        // instrument ALREADY sounding here, which voice_prev_pw keeps. The result rides the stack.
-        asm.Tay();                                  // park the note in Y rather than reloading it
-        asm.Lda(MemX(zp.VoicePrevPw));
-        asm.And(Imm(0x20));
-        asm.Pha();
-
-        // Before the jsr: with slide or vibrato it writes the note plus its offset, and a new note
-        // starts from the bare note. Carry is clear from the bcs above, which is what tells
-        // Voice_SetFreq to write and not to step the offset.
+        // sty, so A keeps the note. Before the jsr: with slide or vibrato it writes the note plus
+        // its offset, and a new note starts from the bare note. Carry is clear from the bcs above,
+        // which is what tells Voice_SetFreq to write and not to step the offset.
         if (features.FreqMod)
         {
-            asm.Lda(Imm(0));
+            asm.Ldy(Imm(0));
             if (features.Vibrato)
-                asm.Sta(MemX(zp.VoiceVibDir));
-            asm.Sta(MemX(zp.VoiceOffLo));
-            asm.Sta(MemX(zp.VoiceOffHi));
+                asm.Sty(MemX(zp.VoiceVibDir));
+            asm.Sty(MemX(zp.VoiceOffLo));
+            asm.Sty(MemX(zp.VoiceOffHi));
             if (features.Slide)
-                asm.Sta(MemX(zp.VoiceSlide));       // and a new note starts without a slide
+                asm.Sty(MemX(zp.VoiceSlide));       // and a new note starts without a slide
         }
 
-        asm.Tya();
+        asm.Jsr(voiceSetFreq);
 
-        asm.Jsr(voiceSetFreq);                      // leaves Y = this channel's SID offset
-
-        // Hard restart unless NOHR: zero AD, release 7, gate off (waveform kept, or $08 - see
-        // MagSid.Core.HardRestart). Release 7 and not 0
-        // because the envelope rate counter is never reset by a write - a period below where it
-        // sits wraps it through 15 bits and the next attack stalls.
-        asm.Pla();
+        // Hard restart unless NOHR, bit 5 of the pw_init byte belonging to the instrument ALREADY
+        // sounding here, which voice_prev_pw keeps: zero AD, release 7, gate off (waveform kept, or
+        // $08 - see MagSid.Core.HardRestart). Release 7 and not 0 because the envelope rate counter
+        // is never reset by a write - a period below where it sits wraps it through 15 bits and the
+        // next attack stalls.
+        asm.Lda(MemX(zp.VoicePrevPw));
+        asm.And(Imm(0x20));
         var skipHardReset = asm.NewLabel(".skiphardreset");
         asm.Bne(skipHardReset);
         // A is already $00 - it is the "and #$20" result the bne just proved to be zero, so the
         // usual "lda #$00" in front of this is dead.
-        asm.Sta(MemY(SidAttackDecay));
+        asm.Sta(MemX(SidAttackDecay));
         asm.Lda(Imm(0x07));
-        asm.Sta(MemY(SidSustainRelease));
+        asm.Sta(MemX(SidSustainRelease));
         // See MagSid.Core.HardRestart: gate off with the waveform kept, or $08.
         if (Core.HardRestart.KeepsWaveform)
         {
@@ -255,29 +256,36 @@ public static class PlayerProgram
             asm.Define(writeControl);
         }
 
-        asm.Sta(MemY(SidControl));
+        asm.Sta(MemX(SidControl));
         asm.Define(skipHardReset);
 
-        asm.Lda(MemX(zp.VoiceInst));
-        asm.Tax();                                  // X = instrument nr, channel parked in ZP_ch
-        asm.Lda(MemX(tables.PwInit));
-        asm.Pha();                                  // A and Y are both busy carrying wt_start and
-        asm.Lda(MemX(tables.WtStart));              // arp_start down to the stores below
-        asm.Ldy(MemX(tables.FltStart));
+        asm.Ldy(MemX(zp.VoiceInst));
+        asm.Lda(MemY(tables.WtStart));
+        asm.Sta(MemX(zp.VoiceWtPos));
+        asm.Lda(MemY(tables.ArpStart));             // 0 for an instrument with no arpeggio
+        asm.Sta(MemX(zp.VoiceArpPos));
+        asm.Lda(MemY(tables.FltStart));
         var noFilter = asm.NewLabel(".nofilter");
         asm.Beq(noFilter);                          // instrument leaves the filter alone
-        asm.Sty(Mem(zp.FilterPos));
+        asm.Sta(Mem(zp.FilterPos));
         asm.Define(noFilter);
-        asm.Ldy(MemX(tables.ArpStart));             // 0 for an instrument with no arpeggio
-        asm.Ldx(Mem(zp.ZpCh));
-        asm.Sta(MemX(zp.VoiceWtPos));
-        asm.Sty(MemX(zp.VoiceArpPos));              // zp,x - A is reloaded on every path below
+
+        asm.Lda(MemY(tables.PwInit));
+        asm.Sta(MemX(zp.VoicePrevPw));              // for the next trigger's NOHR test above
+        asm.And(Imm(0x40));
+        // bit 6 set: continuous - the sweep is per channel, so leave it running across the trigger.
+        var arm = asm.NewLabel(".arm");
+        asm.Bne(arm);
+        asm.Lda(MemX(zp.VoicePrevPw));
+        asm.Sta(MemX(zp.VoicePwHi));                // a note restarts the sweep from the
+        asm.Lda(Imm(0));                            // instrument's own starting width
+        asm.Sta(MemX(zp.VoicePwLo));
+        asm.Define(arm);
 
         if (features.Vibrato)
         {
             // Arm this note's vibrato: delay from vib_ds's top nibble (x4 frames), first run half a
             // speed long (low nibble >> 1), which centres the wave on the note.
-            asm.Ldy(MemX(zp.VoiceInst));
             asm.Lda(MemY(tables.VibDs!));
             asm.Tay();                              // Y is free from here on, and cheaper than a reload
             asm.Asr(Imm(0xF0));                     // ALR: and #$f0 + lsr, same flags
@@ -288,18 +296,6 @@ public static class PlayerProgram
             asm.Sta(MemX(zp.VoiceVibCnt));
         }
 
-        asm.Pla();
-        asm.Tay();                                  // park pw_init while testing it
-        // Stashed for the *next* trigger's NOHR test: this is the instrument that will be sounding
-        // when it runs. sta, not sty - STY has no absolute,X mode.
-        asm.Sta(MemX(zp.VoicePrevPw));
-        asm.And(Imm(0x40));
-        // bit 6 set: continuous - the sweep is per channel, so leave it running across the trigger.
-        asm.Bne(leaveSounding);
-        asm.Tya();
-        asm.Sta(MemX(zp.VoicePwHi));                // a note restarts the sweep from the
-        asm.Lda(Imm(0));                            // instrument's own starting width
-        asm.Sta(MemX(zp.VoicePwLo));
         asm.Define(leaveSounding);
         asm.Rts();
     }
@@ -309,7 +305,7 @@ public static class PlayerProgram
     /// doubles as "nothing played yet". A released note sits on wt_hold and runs on.</summary>
     private static void EmitVoiceAutomation(
         Emitter6502 asm, SongTableLabels tables, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label voiceSetFreq, Label sidChannelOffset)
+        Label entry, Label voiceSetFreq)
     {
         var idle = asm.NewLabel(".idle");
         var freqMod = asm.NewLabel(".freqmod");
@@ -340,31 +336,26 @@ public static class PlayerProgram
         asm.Lda(MemY(tables.WtData));
         var adsr = asm.NewLabel(".adsr");
         asm.Beq(adsr);                              // $00 = hold on the current waveform
-        asm.Ldy(MemX(sidChannelOffset));
-        asm.Sta(MemY(SidControl));
+        asm.Sta(MemX(SidControl));
         asm.Sta(MemX(zp.VoiceLastWaveform));        // remembered for Voice_NoteOff
         asm.Inc(MemX(zp.VoiceWtPos));
         asm.Define(adsr);
 
-        asm.Ldy(MemX(sidChannelOffset));
-        asm.Stx(Mem(zp.ZpCh));
-        asm.Lda(MemX(zp.VoiceInst));
-        asm.Tax();                                  // X = instrument nr, channel parked in ZP_ch
-        asm.Lda(MemX(tables.AdTable));
-        asm.Sta(MemY(SidAttackDecay));
-        asm.Lda(MemX(tables.SrTable));
-        asm.Sta(MemY(SidSustainRelease));
+        asm.Ldy(MemX(zp.VoiceInst));
+        asm.Lda(MemY(tables.AdTable));
+        asm.Sta(MemX(SidAttackDecay));
+        asm.Lda(MemY(tables.SrTable));
+        asm.Sta(MemX(SidSustainRelease));
 
         // Pulse width. $D402/$D403 are write-only, so the width lives in a per-channel shadow and
         // is rewritten every frame. The delta is sign-extended into all 12 bits, so the sweep
-        // travels the whole register and wraps. X is still the instrument index here.
-        asm.Lda(MemX(tables.PwAdd));
-        asm.Ldx(Mem(zp.ZpCh));
+        // travels the whole register and wraps.
+        asm.Lda(MemY(tables.PwAdd));
         asm.Pha();
         asm.Clc();
         asm.Adc(MemX(zp.VoicePwLo));
         asm.Sta(MemX(zp.VoicePwLo));
-        asm.Sta(MemY(SidPwLo));
+        asm.Sta(MemX(SidPwLo));
         asm.Pla();                                  // the delta again. None of pla/and/beq/lda
         asm.And(Imm(0x80));                         // touches the carry flag either
         var pwHigh = asm.NewLabel(".pwhigh");
@@ -374,7 +365,7 @@ public static class PlayerProgram
         asm.Adc(MemX(zp.VoicePwHi));
         asm.And(Imm(0x0F));
         asm.Sta(MemX(zp.VoicePwHi));
-        asm.Sta(MemY(SidPwHi));
+        asm.Sta(MemX(SidPwHi));
 
         // Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
         // which plays the row's own note - that pair is what makes a drum or bass transient
@@ -396,21 +387,17 @@ public static class PlayerProgram
         if (features.FreqMod)
         {
             asm.Sec();                              // a step: on through the offset, unlike a new note
-            EmitFreqMod(asm, tables, parameters, features, zp, voiceSetFreq, freqMod, sidChannelOffset);
+            EmitFreqMod(asm, tables, parameters, features, zp, voiceSetFreq, freqMod);
         }
         else
         {
-            // A = note dictionary id, X = channel. Writes the frequency and returns with Y holding
-            // that channel's SID offset, which the trigger goes on to use.
+            // A = note dictionary id, X = voice. Writes the frequency.
             asm.Define(voiceSetFreq);
-            asm.Tay();                              // Y = note id
+            asm.Tay();
             asm.Lda(MemY(tables.NoteFreqLow));
-            asm.Pha();                              // the stack carries the lo byte across the Y
-            asm.Lda(MemY(tables.NoteFreqHigh));     // switch from note id to SID channel offset
-            asm.Ldy(MemX(sidChannelOffset));
-            asm.Sta(MemY(SidFreqHi));
-            asm.Pla();
-            asm.Sta(MemY(SidFreqLo));
+            asm.Sta(MemX(SidFreqLo));
+            asm.Lda(MemY(tables.NoteFreqHigh));
+            asm.Sta(MemX(SidFreqHi));
             asm.Define(idle);
             asm.Rts();
         }
@@ -419,7 +406,7 @@ public static class PlayerProgram
     /// <summary>
     /// A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be read
     /// back for; then a note program (carry set) steps the offset, and a new note (carry clear) does
-    /// not. Returns with Y holding this channel's SID offset, which the trigger goes on to use.
+    /// not.
     ///
     /// Then slide and vibrato, last in Voice_Automation because a note program sets a new bare note
     /// every frame. Both move one signed 16-bit offset, which is added back on top of the note and
@@ -430,7 +417,7 @@ public static class PlayerProgram
     /// </summary>
     private static void EmitFreqMod(
         Emitter6502 asm, SongTableLabels tables, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp,
-        Label voiceSetFreq, Label freqMod, Label sidChannelOffset)
+        Label voiceSetFreq, Label freqMod)
     {
         var fmWrite = asm.NewLabel(".fmwrite");
 
@@ -499,14 +486,13 @@ public static class PlayerProgram
         }
 
         asm.Define(fmWrite);
-        asm.Ldy(MemX(sidChannelOffset));
         asm.Lda(MemX(zp.VoiceFreqLo));
         asm.Clc();
         asm.Adc(MemX(zp.VoiceOffLo));
-        asm.Sta(MemY(SidFreqLo));
+        asm.Sta(MemX(SidFreqLo));
         asm.Lda(MemX(zp.VoiceFreqHi));
         asm.Adc(MemX(zp.VoiceOffHi));
-        asm.Sta(MemY(SidFreqHi));
+        asm.Sta(MemX(SidFreqHi));
         asm.Rts();
     }
 
@@ -527,24 +513,15 @@ public static class PlayerProgram
 
         asm.Move8(Imm(0x0F), Mem(SidFilterModeVolume));
 
-        asm.Ldx(Imm(parameters.Channels - 1));
+        // The first voice's list starts at 0, as cleared; the others' are baked in here.
+        asm.Move8(Imm(parameters.OrderStart2), Mem(zp.VoiceOrderPos + ZeroPageLayout.VoiceStride));
+        asm.Move8(Imm(parameters.OrderStart3), Mem(zp.VoiceOrderPos + 2 * ZeroPageLayout.VoiceStride));
+
+        asm.Ldx(LastVoice(parameters));
         var initChannel = asm.DefineHere(".initchannel");
         asm.Jsr(voiceAdvanceOrder);                 // preserves X
-        asm.Dex();
-        asm.Bpl(initChannel);
+        NextVoice(asm, initChannel);
         asm.Rts();
-    }
-
-    /// <summary>The only per-channel arrays carrying real initial values; the rest is in zero page
-    /// and zeroed by music.init.</summary>
-    private static void EmitPlayerData(
-        Emitter6502 asm, PlayerParameters parameters, Label voiceOrderPos, Label sidChannelOffset)
-    {
-        asm.Define(voiceOrderPos);
-        asm.Bytes(parameters.OrderStart1, parameters.OrderStart2, parameters.OrderStart3);
-
-        asm.Define(sidChannelOffset);
-        asm.Bytes(0, 7, 14);
     }
 
     private static void EmitMusicPlay(
@@ -556,11 +533,10 @@ public static class PlayerProgram
         // Wavetables first and on every frame - that is what gives them frame resolution. Counting
         // down saves the cpx; it reverses the write order within a frame, but the writes and the
         // per-frame register state are identical and the voices are independent, so it is inaudible.
-        asm.Ldx(Imm(parameters.Channels - 1));
+        asm.Ldx(LastVoice(parameters));
         var nextVoice = asm.DefineHere(".nextvoice");
         asm.Jsr(voiceAutomation);
-        asm.Dex();
-        asm.Bpl(nextVoice);
+        NextVoice(asm, nextVoice);
 
         EmitFilterPlay(asm, tables, zp, onBeatPlaySong);
 
@@ -583,11 +559,10 @@ public static class PlayerProgram
 
         // Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
         // below is this routine's own.
-        asm.Ldx(Imm(parameters.Channels - 1));      // descending, same reasoning as above
+        asm.Ldx(LastVoice(parameters));             // descending, same reasoning as above
         var nextChannel = asm.DefineHere(".nextchannel");
         asm.Jsr(voiceTick);                         // preserves X
-        asm.Dex();
-        asm.Bpl(nextChannel);
+        NextVoice(asm, nextChannel);
         asm.Rts();
     }
 
@@ -651,7 +626,7 @@ public static class PlayerProgram
     /// bytes. Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.</summary>
     private static void EmitVoiceTick(
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label voicePlayCurrent, Label voiceAdvanceOrder)
+        Label entry, Label voiceAdvanceOrder)
     {
         asm.Define(entry);
         var fetch = asm.NewLabel(".fetch");
@@ -664,8 +639,6 @@ public static class PlayerProgram
         var endOfPattern = asm.NewLabel(".endofpattern");
         var slide = asm.NewLabel(".slide");
 
-        asm.Stx(Mem(zp.ZpCh));
-
         // Count down first and test the result rather than testing for zero then decrementing: a
         // row with N ticks left spends exactly N of them here. The $ff is never seen - .playrow
         // reloads voice_duration from voice_rowdur first.
@@ -674,9 +647,9 @@ public static class PlayerProgram
         asm.Rts();
 
         asm.Define(fetch);
-        asm.Ldy(MemX(zp.VoicePatternIdx));          // Y = pattern index, so X stays the channel -
-        asm.Lda(MemY(tables.TblRowsLo));            // 3 bytes less than borrowing X and putting it
-        asm.Sta(Mem(zp.ZpLb));                      // back from ZP_ch
+        asm.Ldy(MemX(zp.VoicePatternIdx));
+        asm.Lda(MemY(tables.TblRowsLo));
+        asm.Sta(Mem(zp.ZpLb));
         asm.Lda(MemY(tables.TblRowsHi));
         asm.Sta(Mem(zp.ZpHb));
 
@@ -731,6 +704,10 @@ public static class PlayerProgram
         asm.Tay();                                  // same reasoning - jump straight in with Y set
         asm.Jmp(nextCmd);
 
+        asm.Define(endOfPattern);
+        asm.Jsr(voiceAdvanceOrder);                 // reuses ZP_lb/hb, so re-derive the row pointer
+        asm.Jmp(fetch);
+
         // Masking rather than subtracting: the dispatch above already proved which range the byte
         // is in, so the low bits are the value and a single AND isolates them - one byte less than
         // sec/sbc, and it leaves no carry to think about.
@@ -758,17 +735,11 @@ public static class PlayerProgram
             asm.Lda(Imm(RowWait));
         }
 
+        // All in Y: A keeps the note for Voice_PlayCurrent, which this falls into.
         asm.Define(playRow);
-        asm.Sta(MemX(zp.VoiceNote));
         asm.Iny();
-        asm.Tya();
-        asm.Sta(MemX(zp.VoiceEvent));
-        asm.Lda(MemX(zp.VoiceRowDur));              // the row takes however long is current
-        asm.Sta(MemX(zp.VoiceDuration));
-        asm.Jmp(voicePlayCurrent);                  // tail call - its rts returns to our caller
-
-        asm.Define(endOfPattern);
-        asm.Jsr(voiceAdvanceOrder);                 // reuses ZP_lb/hb, so re-derive the row pointer
-        asm.Jmp(fetch);
+        asm.Sty(MemX(zp.VoiceEvent));
+        asm.Ldy(MemX(zp.VoiceRowDur));              // the row takes however long is current
+        asm.Sty(MemX(zp.VoiceDuration));
     }
 }
