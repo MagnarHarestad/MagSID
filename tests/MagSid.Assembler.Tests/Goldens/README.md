@@ -79,6 +79,12 @@ each, for every song in `SongData` and the fixtures, and the SID registers held 
 frame. The writes differ on purpose: the note a step used to write first is gone, and the frequency goes low
 byte first, the two within a few cycles of each other as they always were.
 
+All 26 were reassembled later the same day, 7 bytes smaller without slide or vibrato and 1 with: `Voice_SetFreq`
+falls out of the note program, whose `.byte $2c` now serves every build, and the program's loop moved ahead of
+`Voice_Automation` with its entry test turned into a branch to the `rts` that ends `Voice_SetFreq`. A loop
+target of 0 is refused by the song tables, so the loop always branches. Old 26 rebuilt first, then 30000 frames
+of old and new: the same writes and the same SID state.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
 the release, funk speed and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.

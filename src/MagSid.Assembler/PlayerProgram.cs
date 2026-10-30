@@ -114,9 +114,6 @@ public static class PlayerProgram
 
         EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff, sidChannelOffset);
         EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder, voiceOrderPos);
-        // With slide or vibrato it is part of Voice_Automation, joined to the frequency write.
-        if (!features.FreqMod)
-            EmitVoiceSetFreq(asm, tables, voiceSetFreq, sidChannelOffset);
         EmitVoicePlayCurrent(asm, tables, features, zp, voicePlayCurrent, voiceNoteOff, voiceSetFreq, sidChannelOffset);
         EmitVoiceAutomation(asm, tables, features, zp, voiceAutomation, voiceSetFreq, sidChannelOffset);
         EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder);
@@ -170,22 +167,6 @@ public static class PlayerProgram
         asm.Lda(MemY(tables.TblSongOrder));         // absolute restart position
         asm.Sta(MemX(voiceOrderPos));
         asm.Jmp(read);
-    }
-
-    /// <summary>A = note dictionary id, X = channel. Writes the frequency and returns with Y
-    /// holding that channel's SID offset, which both callers go on to use.</summary>
-    private static void EmitVoiceSetFreq(Emitter6502 asm, SongTableLabels tables, Label entry, Label sidChannelOffset)
-    {
-        asm.Define(entry);
-        asm.Tay();                                  // Y = note id
-        asm.Lda(MemY(tables.NoteFreqLow));
-        asm.Pha();                                  // the stack carries the lo byte across the Y
-        asm.Lda(MemY(tables.NoteFreqHigh));         // switch from note id to SID channel offset
-        asm.Ldy(MemX(sidChannelOffset));
-        asm.Sta(MemY(SidFreqHi));
-        asm.Pla();
-        asm.Sta(MemY(SidFreqLo));
-        asm.Rts();
     }
 
     private static void EmitVoicePlayCurrent(
@@ -325,17 +306,31 @@ public static class PlayerProgram
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
         Label entry, Label voiceSetFreq, Label sidChannelOffset)
     {
-        asm.Define(entry);
         var idle = asm.NewLabel(".idle");
         var freqMod = asm.NewLabel(".freqmod");
+        var arpStep = asm.NewLabel(".arpstep");
+        var arpLoop = asm.NewLabel(".arploop");
         // Where the note program's "no program" branch goes.
         Label afterArp = features.FreqMod ? freqMod : idle;
 
+        // The note program's $00: the next byte says where to resume, which is never 0 - the song
+        // tables refuse it - so this always branches. Here, ahead of the entry, because what it
+        // would fall into is harmless, and the rts below is in reach of the entry.
+        asm.Define(arpLoop);
+        asm.Iny();
+        asm.Lda(MemY(tables.ArpData));
+        asm.Sta(MemX(zp.VoiceArpPos));
+        asm.Tay();
+        asm.Bne(arpStep);
+        if (features.FreqMod)
+        {
+            asm.Define(idle);
+            asm.Rts();
+        }
+
+        asm.Define(entry);
         asm.Ldy(MemX(zp.VoiceWtPos));
-        var running = asm.NewLabel(".running");
-        asm.Bne(running);
-        asm.Rts();                                  // an rts of its own is 2 bytes cheaper than a
-        asm.Define(running);                        // long branch to .idle below
+        asm.Beq(idle);
 
         asm.Lda(MemY(tables.WtData));
         var adsr = asm.NewLabel(".adsr");
@@ -382,41 +377,35 @@ public static class PlayerProgram
         asm.Ldy(MemX(zp.VoiceArpPos));
         asm.Beq(afterArp);                          // instrument has no note program
 
-        var arpStep = asm.DefineHere(".arpstep");
+        asm.Define(arpStep);
         asm.Lda(MemY(tables.ArpData));
-        var arpLoop = asm.NewLabel(".arploop");
         asm.Beq(arpLoop);                           // $00 = end marker, next byte says where to resume
         var arpNote = asm.NewLabel(".arpnote");
         asm.Bpl(arpNote);                           // $01..$7F = a note dictionary id
                                                     // else bit 7 set = exactly $80 = ROOT
         asm.Lda(MemX(zp.VoiceRoot));
-        var arpLoopBody = (Action)(() =>
-        {
-            asm.Define(arpLoop);
-            asm.Iny();
-            asm.Lda(MemY(tables.ArpData));
-            asm.Sta(MemX(zp.VoiceArpPos));
-            asm.Tay();
-            asm.Bne(arpStep);                       // a target of 0 would stop the arpeggio instead
-        });
+        asm.Bytes(0x2C);                            // bit abs: steps over the inc, a byte under a branch
+        asm.Define(arpNote);
+        asm.Inc(MemX(zp.VoiceArpPos));
 
         if (features.FreqMod)
         {
-            asm.Bytes(0x2C);                        // bit abs: steps over the inc, a byte under a branch
-            asm.Define(arpNote);
-            asm.Inc(MemX(zp.VoiceArpPos));
             asm.Sec();                              // a step: on through the offset, unlike a new note
             EmitFreqMod(asm, tables, features, zp, voiceSetFreq, freqMod, sidChannelOffset);
-            arpLoopBody();
-            asm.Rts();
         }
         else
         {
-            asm.Jmp(voiceSetFreq);
-            asm.Define(arpNote);
-            asm.Inc(MemX(zp.VoiceArpPos));
-            asm.Jmp(voiceSetFreq);                  // tail call - it ends in the rts this needs
-            arpLoopBody();
+            // A = note dictionary id, X = channel. Writes the frequency and returns with Y holding
+            // that channel's SID offset, which the trigger goes on to use.
+            asm.Define(voiceSetFreq);
+            asm.Tay();                              // Y = note id
+            asm.Lda(MemY(tables.NoteFreqLow));
+            asm.Pha();                              // the stack carries the lo byte across the Y
+            asm.Lda(MemY(tables.NoteFreqHigh));     // switch from note id to SID channel offset
+            asm.Ldy(MemX(sidChannelOffset));
+            asm.Sta(MemY(SidFreqHi));
+            asm.Pla();
+            asm.Sta(MemY(SidFreqLo));
             asm.Define(idle);
             asm.Rts();
         }

@@ -61,35 +61,33 @@
  
  Voice_AdvanceOrder:
  .read:
-@@ -141,6 +146,7 @@
+@@ -141,25 +146,6 @@
  ; A = note dictionary id, X = channel. Writes the note's frequency and returns with Y
  ; holding that channel's SID offset, which both callers go on to use.
  
-+		if !def v_freqmod
- Voice_SetFreq:
- 		tay                                    ; Y = note id, index into note_freq_low/high
- 		lda note_freq_low,y
-@@ -148,18 +154,10 @@
- 		lda note_freq_high,y                    ; switch from note id to SID channel offset,
- 		ldy SID_channel_offset,x                ; which is cheaper than bouncing it via ZP
- 		sta $d401,y
+-Voice_SetFreq:
+-		tay                                    ; Y = note id, index into note_freq_low/high
+-		lda note_freq_low,y
+-		pha                                    ; the stack carries the lo byte across the Y
+-		lda note_freq_high,y                    ; switch from note id to SID channel offset,
+-		ldy SID_channel_offset,x                ; which is cheaper than bouncing it via ZP
+-		sta $d401,y
 -		if def v_freqmod
 -		; The SID's frequency registers cannot be read back, and vibrato/slide write base + offset
 -		; over whatever a note or arpeggio step just wrote - so the base is kept here, the one
 -		; place every frequency write passes through.
 -		sta voice_freq_hi,x
 -		endif
- 		pla
- 		sta $d400,y
+-		pla
+-		sta $d400,y
 -		if def v_freqmod
 -		sta voice_freq_lo,x
 -		endif
- 		rts
-+		endif
+-		rts
  
  Voice_PlayCurrent:
  		lda voice_note,x
-@@ -182,6 +180,20 @@
+@@ -182,6 +168,20 @@
  		lda voice_prev_pw,x                    ; from voice_root below - Y is free until the
  		and #$20                               ; jsr, and tya is 2 bytes cheaper than the load
  		pha
@@ -110,7 +108,7 @@
  		tya
  
  		jsr Voice_SetFreq                      ; SetFreq leaves Y = this channel's SID offset.
-@@ -212,31 +224,19 @@
+@@ -212,31 +212,19 @@
  		ldy arp_start,x                        ; 0 for an instrument with no arpeggio
  		ldx ZP_ch
  		sta voice_wt_pos,x
@@ -147,6 +145,33 @@
  		endif
  		pla
  		tay                                    ; park pw_init while testing it - Y is free from
+@@ -258,11 +246,23 @@
+ ; transient needs frame resolution. A step byte goes straight to the control register; $00
+ ; holds. Pool offset 0 is a dummy $00, so voice_wt_pos = 0 doubles as "nothing running".
+ 
++		; The note program's $00: the next byte says where to resume, which is never 0 - the song
++		; tables refuse it - so this always branches. Here, ahead of the entry, because what it
++		; would fall into is harmless, and the rts below is in reach of the entry.
++Voice_ArpLoop:
++		iny
++		lda arp_data,y
++		sta voice_arp_pos,x
++		tay
++		bne Voice_ArpStep
++		if def v_freqmod
++Voice_AutomationIdle:
++		rts
++		endif
++
+ Voice_Automation:
+ 		ldy voice_wt_pos,x
+-		bne .running                           ; an rts of its own is 2 bytes cheaper than a long
+-		rts                                    ; branch to the .idle the arpeggio paths still use
+-.running:
++		beq Voice_AutomationIdle
+ 		lda wt_data,y
+ 		beq .adsr                              ; $00 = hold on the current waveform
+ 		ldy SID_channel_offset,x
 @@ -305,92 +305,74 @@
  		; expressible.
  		ldy voice_arp_pos,x
@@ -167,36 +192,55 @@
  		                                       ; else bit 7 set = exactly $80 = ROOT
 -.arproot:
  		lda voice_root,x
- 		if def v_freqmod
+-		if def v_freqmod
 -		jsr Voice_SetFreq
 -		jmp .freqmod
-+		.byte $2c                              ; bit abs: steps over the inc, a byte under a branch
- 		else
- 		jmp Voice_SetFreq
- 		endif
+-		else
+-		jmp Voice_SetFreq
+-		endif
 -.arpnote:
++		.byte $2c                              ; bit abs: steps over the inc, a byte under a branch
 +Voice_ArpNote:
  		inc voice_arp_pos,x
 -		if def v_freqmod
 -		jsr Voice_SetFreq
 -		jmp .freqmod
--		else
 +		if !def v_freqmod
- 		jmp Voice_SetFreq                      ; tail call - it ends in the rts this needs
++		; A = note dictionary id, X = channel. Writes the note's frequency and returns with Y
++		; holding that channel's SID offset, which the trigger goes on to use.
++Voice_SetFreq:
++		tay                                    ; Y = note id, index into note_freq_low/high
++		lda note_freq_low,y
++		pha                                    ; the stack carries the lo byte across the Y
++		lda note_freq_high,y                    ; switch from note id to SID channel offset,
++		ldy SID_channel_offset,x                ; which is cheaper than bouncing it via ZP
++		sta $d401,y
++		pla
++		sta $d400,y
++Voice_AutomationIdle:
++		rts
+ 		else
+-		jmp Voice_SetFreq                      ; tail call - it ends in the rts this needs
 -		endif
 -.arploop:
-+Voice_ArpLoop:
- 		iny
- 		lda arp_data,y
- 		sta voice_arp_pos,x
+-		iny
+-		lda arp_data,y
+-		sta voice_arp_pos,x
++		sec                                    ; a step: on through the offset, unlike a new note
++
++		; A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be
++		; read back for; then a note program (carry set) steps the offset, and a new note (carry
++		; clear) does not. Returns with Y holding this channel's SID offset, which the trigger uses.
++Voice_SetFreq:
  		tay
 -		bne .arpstep                           ; a target of 0 would stop the arpeggio instead
 -.idle:
-+		bne Voice_ArpStep                      ; a target of 0 would stop the arpeggio instead
-+Voice_AutomationIdle:
- 		rts
-+		else
-+		sec                                    ; a step: on through the offset, unlike a new note
+-		rts
++		lda note_freq_low,y
++		sta voice_freq_lo,x
++		lda note_freq_high,y
++		sta voice_freq_hi,x
++		bcc Voice_FmWrite
  
 -		if def v_freqmod
 -		; Frequency modulation: slide and vibrato, last in Voice_Automation because the arpeggio
@@ -204,17 +248,6 @@
 -		; slide_rate a frame, vibrato traces a triangle from vib_ds (delay/speed) and vib_depth.
 -.freqmod:
 -		ldy voice_inst,x
-+		; A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be
-+		; read back for; then a note program (carry set) steps the offset, and a new note (carry
-+		; clear) does not. Returns with Y holding this channel's SID offset, which the trigger uses.
-+Voice_SetFreq:
-+		tay
-+		lda note_freq_low,y
-+		sta voice_freq_lo,x
-+		lda note_freq_high,y
-+		sta voice_freq_hi,x
-+		bcc Voice_FmWrite
-+
 +		; Slide and vibrato, last in Voice_Automation because a note program sets a new bare note
 +		; every frame. Both move one signed 16-bit offset, which is added back on top of the note
 +		; and written every frame - that is what keeps a slide "100" stopped where it got to.
@@ -283,7 +316,7 @@
  		eor voice_vib_dir,x
  		adc voice_off_lo,x
  		sta voice_off_lo,x
-@@ -398,26 +380,30 @@
+@@ -398,26 +380,23 @@
  		adc voice_off_hi,x
  		sta voice_off_hi,x
  		dec voice_vib_cnt,x
@@ -311,17 +344,10 @@
  		sta $d401,y
 -		pla
 -		sta $d400,y
-+		rts
-+Voice_ArpLoop:
-+		iny
-+		lda arp_data,y
-+		sta voice_arp_pos,x
-+		tay
-+		bne Voice_ArpStep                      ; a target of 0 would stop the arpeggio instead
  		rts
  		endif
  
-@@ -529,7 +515,17 @@
+@@ -529,7 +508,17 @@
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
@@ -339,7 +365,7 @@
  
  ; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
  ; below is this routine's own.
-@@ -557,10 +553,11 @@
+@@ -557,10 +546,11 @@
  		rts
  
  .fetch:
@@ -355,7 +381,7 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +569,12 @@
+@@ -572,7 +562,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
@@ -368,7 +394,7 @@
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -621,6 +623,15 @@
+@@ -621,6 +616,15 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  

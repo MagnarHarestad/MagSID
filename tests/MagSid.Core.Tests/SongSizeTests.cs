@@ -21,13 +21,13 @@ public class SongSizeTests
             "..", "..", "..", "..", "..", "SongData"));
 
     [Theory]
-    [InlineData("Airstrike.s", 894)]
-    [InlineData("BellaCiao.s", 1011)]
-    [InlineData("Breakdance.s", 864)]
-    [InlineData("Lightforce.s", 1006)]
-    [InlineData("Magnificent.s", 1137)]
-    [InlineData("CityBomber4k(Megastyle).s", 751)]
-    [InlineData("SOS.s", 877)]
+    [InlineData("Airstrike.s", 887)]
+    [InlineData("BellaCiao.s", 1010)]
+    [InlineData("Breakdance.s", 857)]
+    [InlineData("Lightforce.s", 999)]
+    [InlineData("Magnificent.s", 1130)]
+    [InlineData("CityBomber4k(Megastyle).s", 744)]
+    [InlineData("SOS.s", 870)]
     public void Reported_size_matches_what_c6510_actually_assembles(string file, int assembledBytes)
     {
         // Only the whole SongData folder being absent counts as "not checked out". A folder that
