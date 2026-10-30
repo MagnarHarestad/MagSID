@@ -5,6 +5,7 @@
 using System.Drawing.Drawing2D;
 using System.Globalization;
 using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 using Avalonia.Media.Immutable;
 using AvColor = Avalonia.Media.Color;
 using AvPoint = Avalonia.Point;
@@ -228,8 +229,8 @@ public sealed class Region(RectangleF bounds)
 /// <summary>
 /// A GDI+ Graphics, painting through an Avalonia DrawingContext. Thin lines land on whole pixels the
 /// way GDI+ puts them, half a pixel in, so a one-pixel grid stays crisp rather than smeared over
-/// two rows; text is laid out with Avalonia's FormattedText and cached, since a tracker repaints
-/// the same few strings sixty times a second.
+/// two rows; text is laid out with Avalonia's TextLayout and cached, since a tracker repaints
+/// the same few strings at every frame of the display.
 /// </summary>
 public sealed class Graphics : IDisposable
 {
@@ -459,7 +460,7 @@ public sealed class Graphics : IDisposable
         else if (format?.Alignment == StringAlignment.Far)
             x = point.X - formatted.WidthIncludingTrailingWhitespace;
 
-        _context.DrawText(formatted, new AvPoint(x, point.Y));
+        formatted.Draw(_context, new AvPoint(x, point.Y));
     }
 
     public void DrawString(string? text, Font font, Brush brush, RectangleF layout, StringFormat? format = null)
@@ -486,7 +487,7 @@ public sealed class Graphics : IDisposable
         };
 
         using (_context.PushClip(new AvRect(layout.X, layout.Y, Math.Max(0, layout.Width), Math.Max(0, layout.Height + 2))))
-            _context.DrawText(formatted, new AvPoint(x, y));
+            formatted.Draw(_context, new AvPoint(x, y));
     }
 
     public SizeF MeasureString(string? text, Font font) => MeasureString(text, font, int.MaxValue);
@@ -549,11 +550,15 @@ public static class SystemColors
 /// <summary>Conversions and the text-layout cache the stand-ins share.</summary>
 internal static class Shim
 {
-    private static readonly Dictionary<(string Text, Typeface Face, float Size, IBrush Brush), FormattedText> TextCache = [];
+    // TextLayout, not FormattedText: FormattedText keeps only its measurements and lays its lines
+    // out again every time it is drawn, so caching it saved nothing - the tracker's repaint shaped
+    // every string anew, some 12 MB a second of glyph arrays, and the collections that cleared
+    // them up held frames back. A TextLayout keeps its lines; drawing it again only draws.
+    private static readonly Dictionary<(string Text, Typeface Face, float Size, IBrush Brush), TextLayout> TextCache = [];
 
     public static AvColor ToAvalonia(Color color) => AvColor.FromArgb(color.A, color.R, color.G, color.B);
 
-    public static FormattedText Text(string text, Font font, IBrush brush)
+    public static TextLayout Text(string text, Font font, IBrush brush)
     {
         var key = (text, font.Typeface, font.PixelSize, brush);
         if (TextCache.TryGetValue(key, out var cached))
@@ -564,7 +569,7 @@ internal static class Shim
         if (TextCache.Count > 8192)
             TextCache.Clear();
 
-        var formatted = new FormattedText(text, CultureInfo.InvariantCulture, Avalonia.Media.FlowDirection.LeftToRight, font.Typeface, font.PixelSize, brush);
+        var formatted = new TextLayout(text, font.Typeface, font.PixelSize, brush);
         TextCache[key] = formatted;
         return formatted;
     }

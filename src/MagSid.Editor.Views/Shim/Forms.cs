@@ -199,7 +199,7 @@ public static class TextRenderer
         if (string.IsNullOrEmpty(text))
             return;
         var formatted = Drawing.Shim.Text(text, font, new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Drawing.Shim.ToAvalonia(color)));
-        graphics.Context.DrawText(formatted, new Avalonia.Point(point.X + Padding(font, flags), point.Y));
+        formatted.Draw(graphics.Context, new Avalonia.Point(point.X + Padding(font, flags), point.Y));
     }
 
     public static void DrawText(Graphics graphics, string? text, Font font, Point point, Color foreColor, Color backColor) =>
@@ -229,11 +229,11 @@ public static class TextRenderer
 
         if (flags.HasFlag(TextFormatFlags.NoClipping))
         {
-            graphics.Context.DrawText(formatted, new Avalonia.Point(x, y));
+            formatted.Draw(graphics.Context, new Avalonia.Point(x, y));
             return;
         }
 
         using (graphics.Context.PushClip(new Avalonia.Rect(bounds.X, bounds.Y, Math.Max(0, bounds.Width), Math.Max(0, bounds.Height))))
-            graphics.Context.DrawText(formatted, new Avalonia.Point(x, y));
+            formatted.Draw(graphics.Context, new Avalonia.Point(x, y));
     }
 }

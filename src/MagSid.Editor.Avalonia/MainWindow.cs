@@ -54,7 +54,12 @@ public sealed partial class MainWindow : Window
     // Funk speed: every second row lasts this speed instead. The same value as Song Speed is no
     // funk at all - which is what it shows, and follows the speed, until it is set to another.
     private readonly NumericUpDown _funkSpeed = new();
-    private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(15) };
+    // A fallback: while playback runs, the window drains events and repaints once per displayed
+    // frame (see OnPlaybackFrame). This keeps the drain going when no frames are drawn - minimised.
+    private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromMilliseconds(100) };
+
+    /// <summary>Whether a frame callback is already asked for - one chain at a time.</summary>
+    private bool _framesRequested;
 
     // The 8580 to begin with, as in 1.64; a pick of the other is remembered.
     private ChipModel _chipModel = EditorSettings.Chip6581 ? ChipModel.Mos6581 : ChipModel.Mos8580;
@@ -1368,6 +1373,7 @@ public sealed partial class MainWindow : Window
                 resume is null ? null : [.. resume.Channels.Select(c => c.PlayingEntry)],
                 resume is null ? null : SongSequencer.TicksIntoEntries(_session.Song, resume));
             _poll.Start();
+            RequestPlaybackFrames();
             _play.Content = "■ Stop";
         }
         catch (Exception ex) when (ex is InvalidOperationException or PortAudioSharp.PortAudioException or ArgumentException)
@@ -1408,6 +1414,33 @@ public sealed partial class MainWindow : Window
         _grid.SetPlaybackActive(false);
         _daw.ClearPlayback();
         _play.Content = "▶ Play";
+    }
+
+    private void RequestPlaybackFrames()
+    {
+        if (_framesRequested)
+            return;
+        _framesRequested = true;
+        RequestAnimationFrame(OnPlaybackFrame);
+    }
+
+    /// <summary>
+    /// Once per frame the display shows, while a song plays: the row events drained and the grid
+    /// repainted, so the rows move on every frame and by the same amount. A timer cannot do this -
+    /// Windows rounds its interval to a 15.6 ms tick, which never lines up with the display, and
+    /// the scroll moved on some frames and not others: measured on a 140 Hz screen, the grid
+    /// repainted at gaps of 13 to 21 ms and stood still for whole frames.
+    /// </summary>
+    private void OnPlaybackFrame(TimeSpan _)
+    {
+        _framesRequested = false;
+        if (!_poll.IsEnabled)
+            return;
+
+        DrainPlaybackEvents();
+        if (!_dawShowing)
+            _grid.InvalidateVisual();
+        RequestPlaybackFrames();
     }
 
     private void DrainPlaybackEvents()

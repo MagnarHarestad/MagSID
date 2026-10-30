@@ -443,7 +443,7 @@ public sealed class TrackerGridControl : Control
         {
             return;
         }
-        var pattern = _song.Patterns.FirstOrDefault(p => p.Number == patternNumber);
+        var pattern = PatternNumbered(patternNumber);
         if (pattern is null)
         {
             return;
@@ -1243,7 +1243,7 @@ public sealed class TrackerGridControl : Control
             }
 
             int tokenIndex = orderPos;
-            var pattern = _song.Patterns.FirstOrDefault(p => p.Number == patternNumber);
+            var pattern = PatternNumbered(patternNumber);
             orderPos++;
             if (pattern is null)
             {
@@ -1295,7 +1295,7 @@ public sealed class TrackerGridControl : Control
                 continue;
             }
 
-            var pattern = _song.Patterns.FirstOrDefault(p => p.Number == patternNumber);
+            var pattern = PatternNumbered(patternNumber);
             orderPos++;
             if (pattern is null)
             {
@@ -1368,7 +1368,7 @@ public sealed class TrackerGridControl : Control
                 orderPos++;
                 continue;
             }
-            var pattern = _song.Patterns.FirstOrDefault(p => p.Number == patternNumber);
+            var pattern = PatternNumbered(patternNumber);
             orderPos++;
             if (pattern is not null)
             {
@@ -1457,14 +1457,40 @@ public sealed class TrackerGridControl : Control
     /// </summary>
     private IReadOnlyList<PatternLoops.UnrolledRow> DisplayRows(Pattern pattern)
     {
+        // Within one paint nothing is edited, so a pattern's shape is checked once per paint
+        // rather than for every cell it draws - building it each time was most of what the
+        // playback view allocated every frame.
+        if (_painting && _rowsThisPaint.TryGetValue(pattern, out var known))
+            return known;
+
         string shape = ShapeOf(pattern, out bool endless);
         int cap = _unrollLoops && endless ? EndlessLoopCap() : 0;
-        if (_displayRows.TryGetValue(pattern, out var cached) && cached.Shape == shape && cached.Cap == cap)
-            return cached.Rows;
+        if (!_displayRows.TryGetValue(pattern, out var cached) || cached.Shape != shape || cached.Cap != cap)
+        {
+            cached = (shape, cap, _unrollLoops ? PatternLoops.Unroll(pattern, cap) : PatternLoops.Compact(pattern));
+            _displayRows[pattern] = cached;
+        }
 
-        var rows = _unrollLoops ? PatternLoops.Unroll(pattern, cap) : PatternLoops.Compact(pattern);
-        _displayRows[pattern] = (shape, cap, rows);
-        return rows;
+        if (_painting)
+            _rowsThisPaint[pattern] = cached.Rows;
+        return cached.Rows;
+    }
+
+    private bool _painting;
+    private readonly Dictionary<Pattern, IReadOnlyList<PatternLoops.UnrolledRow>> _rowsThisPaint = [];
+
+    /// <summary>The song's pattern with that number - a plain loop, since this runs for every row
+    /// drawn and a lambda's closure is an allocation each time.</summary>
+    private Pattern? PatternNumbered(int number)
+    {
+        if (_song is null)
+            return null;
+        foreach (var pattern in _song.Patterns)
+        {
+            if (pattern.Number == number)
+                return pattern;
+        }
+        return null;
     }
 
     private static string ShapeOf(Pattern pattern, out bool endless)
@@ -2105,7 +2131,7 @@ public sealed class TrackerGridControl : Control
             {
                 continue;
             }
-            var pattern = _song.Patterns.FirstOrDefault(p => p.Number == number);
+            var pattern = PatternNumbered(number);
             if (pattern is not null)
             {
                 row += RealRowCount(pattern);
@@ -2231,6 +2257,21 @@ public sealed class TrackerGridControl : Control
     }
 
     protected override void OnPaint(PaintEventArgs e)
+    {
+        _painting = true;
+        _rowsThisPaint.Clear();
+        try
+        {
+            PaintGrid(e);
+        }
+        finally
+        {
+            _painting = false;
+            _rowsThisPaint.Clear();
+        }
+    }
+
+    private void PaintGrid(PaintEventArgs e)
     {
         base.OnPaint(e);
         var g = e.Graphics;
