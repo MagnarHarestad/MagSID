@@ -158,6 +158,8 @@ internal static class EditorTheme
         app.Styles.Add(Of(typeof(ToggleButton), ".segment",
             ((AvaloniaProperty)TemplatedControl.BackgroundProperty, (object)Field),
             (TemplatedControl.ForegroundProperty, Subtitle)));
+        // Neighbours share a border line; the chosen one is drawn over them, so all of its frame shows.
+        app.Styles.Add(Of(typeof(ToggleButton), ".segment:checked", (Visual.ZIndexProperty, 1)));
 
         // Text fields: a dark box with a thin border, brighter where the caret is.
         app.Styles.Add(Of(typeof(TextBox), "",
