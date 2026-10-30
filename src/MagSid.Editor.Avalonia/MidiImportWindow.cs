@@ -38,7 +38,8 @@ internal sealed class MidiImportWindow : Window
     private readonly TextBlock[] _instrumentName = new TextBlock[Song.ChannelCount];
     private readonly Instrument?[] _instrument = new Instrument?[Song.ChannelCount];
     private readonly ComboBox _grid = Combo(MidiImportText.Grids);
-    private readonly NumericUpDown _speed = Number(0, 255);
+    // Frames a row, as the toolbar shows the song's speed; the importer takes one less.
+    private readonly NumericUpDown _speed = Number(1, 256);
     private readonly TextBlock _speedBpm = new() { Foreground = Dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
     private readonly NumericUpDown _fromBar = Number(1, 1);
     private readonly NumericUpDown _toBar = Number(1, 1);
@@ -250,7 +251,7 @@ internal sealed class MidiImportWindow : Window
     private void SuggestSpeed()
     {
         var (speed, _) = MidiImporter.SuggestSpeed(_midi.Bpm, RowsPerBeat);
-        _speed.Value = speed;
+        _speed.Value = speed + 1;
     }
 
     private int RowsPerBeat => _grid.SelectedIndex == 1 ? 8 : 4;
@@ -309,7 +310,7 @@ internal sealed class MidiImportWindow : Window
             _instrumentName[v].Text = MidiImportText.VoiceSound(VoiceOf(v), v, _instrument[v]?.Name, Options([]));
         }
 
-        _speedBpm.Text = $"= {MidiImporter.SongBpm(Value(_speed), RowsPerBeat):0.#} BPM";
+        _speedBpm.Text = $"= {MidiImporter.SongBpm(Value(_speed) - 1, RowsPerBeat):0.#} BPM";
 
         try
         {
@@ -328,7 +329,7 @@ internal sealed class MidiImportWindow : Window
     }
 
     private MidiImportOptions Options(IReadOnlyList<VoiceImport> voices) => new(
-        voices, RowsPerBeat, Value(_speed), Value(_fromBar) - 1, Value(_toBar) - Value(_fromBar) + 1,
+        voices, RowsPerBeat, Value(_speed) - 1, Value(_fromBar) - 1, Value(_toBar) - Value(_fromBar) + 1,
         UseBank: _useBank.IsChecked == true, Bank: _bank, KeepVibrato: _keepVibrato.IsChecked == true,
         ChordGateOffs: _chordGateOffs.IsChecked == true);
 

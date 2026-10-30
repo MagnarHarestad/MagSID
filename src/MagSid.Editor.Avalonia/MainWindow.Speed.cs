@@ -13,9 +13,14 @@ namespace MagSid.Editor.Avalonia;
 /// sets the speed and the funk speed and shows what they do - how long each row lasts, drawn,
 /// and the tempo that gives. The mouse wheel on the button steps the speed without opening it.
 /// </summary>
+/// <remarks>
+/// Shown as frames a row, as GoatTracker's tempo is: speed 6 is six frames. The song and the
+/// player keep one less (<see cref="MagSid.Core.Model.Song.Speed"/> 5), which is what the player counts down from,
+/// so files and the player are as they always were.
+/// </remarks>
 public sealed partial class MainWindow
 {
-    private const int MaxSpeed = 31;
+    private const int MaxFrames = 32;
 
     private readonly Button _speedButton = new();
     private readonly NumericUpDown _speed = Spinner();
@@ -27,7 +32,7 @@ public sealed partial class MainWindow
     private readonly RowLengthsView _rowLengths = new();
 
     private static NumericUpDown Spinner() =>
-        new() { Minimum = 0, Maximum = MaxSpeed, Width = 64, FormatString = "0" };
+        new() { Minimum = 1, Maximum = MaxFrames, Width = 64, FormatString = "0" };
 
     private Control BuildSpeedButton()
     {
@@ -35,7 +40,7 @@ public sealed partial class MainWindow
         ToolTip.SetTip(_speedButton, "Song speed: click to set it and funk, or scroll to change it");
         _speedButton.PointerWheelChanged += (_, e) =>
         {
-            _speed.Value = Math.Clamp((int)(_speed.Value ?? 6) + (e.Delta.Y > 0 ? 1 : -1), 0, MaxSpeed);
+            _speed.Value = Math.Clamp((int)(_speed.Value ?? 7) + (e.Delta.Y > 0 ? 1 : -1), 1, MaxFrames);
             e.Handled = true;
         };
 
@@ -51,7 +56,7 @@ public sealed partial class MainWindow
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Children = { FlyoutLabel("Speed"), _speed, Hint("frames a row, less one") },
+            Children = { FlyoutLabel("Speed"), _speed, Hint("frames a row, as GoatTracker's tempo") },
         };
         var funkRow = new StackPanel
         {
@@ -98,18 +103,19 @@ public sealed partial class MainWindow
         Foreground = EditorTheme.Subtitle,
     };
 
-    /// <summary>The fields into the song. Funk at the same speed as the rest is no funk, and is
-    /// stored as none.</summary>
+    /// <summary>The fields, in frames, into the song, one less. Funk at the same speed as the
+    /// rest is no funk, and is stored as none.</summary>
     private void ApplySpeed()
     {
-        if (_refreshing || _speed.Value is not { } speed)
+        if (_refreshing || _speed.Value is not { } frames)
             return;
 
         var song = _session.Song;
-        int? funk = _funkOn.IsChecked == true && _funkSpeed.Value is { } f && (int)f != (int)speed ? (int)f : null;
-        if (song.Speed != (int)speed || song.FunkSpeed != funk)
+        int speed = (int)frames - 1;
+        int? funk = _funkOn.IsChecked == true && _funkSpeed.Value is { } f && (int)f - 1 != speed ? (int)f - 1 : null;
+        if (song.Speed != speed || song.FunkSpeed != funk)
         {
-            song.Speed = (int)speed;
+            song.Speed = speed;
             song.FunkSpeed = funk;
             _session.MarkDirty();
         }
@@ -121,18 +127,19 @@ public sealed partial class MainWindow
     private void LoadSpeed()
     {
         var song = _session.Song;
-        _speed.Value = song.Speed;
+        int frames = song.Speed + 1;
+        _speed.Value = frames;
         _funkOn.IsChecked = song.HasFunk;
         _funkSpeed.IsEnabled = song.HasFunk;
         // A first funk speed two either side of the speed: a swing that is plainly heard.
-        _funkSpeed.Value = song.HasFunk ? song.FunkSpeed : song.Speed >= 2 ? song.Speed - 2 : song.Speed + 2;
+        _funkSpeed.Value = song.HasFunk ? song.FunkSpeed + 1 : frames > 2 ? frames - 2 : frames + 2;
         ShowSpeed();
     }
 
     private void ShowSpeed()
     {
         var song = _session.Song;
-        _speedButton.Content = song.HasFunk ? $"Speed {song.Speed}/{song.FunkSpeed} funk ▾" : $"Speed {song.Speed} ▾";
+        _speedButton.Content = song.HasFunk ? $"Speed {song.Speed + 1}/{song.FunkSpeed + 1} funk ▾" : $"Speed {song.Speed + 1} ▾";
         _rowLengths.Show(song.Speed + 1, song.HasFunk ? song.FunkSpeed!.Value + 1 : song.Speed + 1);
 
         // PAL: 50 frames a second, and a beat taken as four rows.

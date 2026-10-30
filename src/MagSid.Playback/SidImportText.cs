@@ -33,11 +33,12 @@ public static class SidImportText
         return (frames, $"(the tune plays {Clock(measured.Total)}{loop})");
     }
 
-    /// <summary>What the row grid is as the song's speed: "= speed 5", or with every second row
-    /// <paramref name="funk"/> frames long "= speed 5, funk 4" - and whether the notes suggest it.</summary>
+    /// <summary>What the row grid is as the song's speed, which the editor shows as frames a row:
+    /// "= speed 6", or with every second row <paramref name="funk"/> frames long "= speed 6, funk 4" -
+    /// and whether the notes suggest it.</summary>
     public static string Grid(int framesPerRow, int? funk, (int FramesPerRow, int? Funk) suggested)
     {
-        static string Speed(int a, int? b) => b is { } f ? $"speed {a - 1}, funk {f - 1}" : $"speed {a - 1}";
+        static string Speed(int a, int? b) => b is { } f ? $"speed {a}, funk {f}" : $"speed {a}";
         static string Frames(int a, int? b) => b is { } f ? $"{a}/{f}" : $"{a}";
 
         return $"= {Speed(framesPerRow, funk)}" + ((framesPerRow, funk) == suggested
