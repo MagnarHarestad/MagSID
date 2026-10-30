@@ -30,19 +30,18 @@ internal sealed class AboutWindow : Window
 
             return new AboutDocument.Platform(
                 OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl",
-                "File",
-                "  File              New, Open, Import MIDI, Import SID, Save, Save As,\n" +
-                "                    Load Instrument, Save Instrument, Export to .sid,\n" +
-                "                    Load and Play .sid, Show High Hex-Values,\n" +
-                "                    Swap Spacebar Behavior, Unroll Loops, Quit\n" +
-                "  Edit              Undo, Redo, Optimize - shrink the song without\n" +
-                "                    changing how it sounds\n" +
-                "  Play              F1-F4, and Edit / Jam\n" +
+                "Menu",
+                "  Menu              About, Undo, Redo, New, Open, Import MIDI, Import SID,\n" +
+                "                    Save, Save As, Load Instrument, Save Instrument,\n" +
+                "                    Export to .sid, Load and Play .sid, Show High Hex-Values,\n" +
+                "                    Swap Spacebar Behavior, Unroll Loops, Check for Updates,\n" +
+                "                    Exit\n" +
                 "  Tools             Signal Path: frame-by-frame trace of one instrument;\n" +
-                "                    Digi to SID-osc: a .wav as ring-modulated instruments\n" +
+                "                    Digi to SID-osc: a .wav as ring-modulated instruments;\n" +
+                "                    Optimize: shrink the song without changing how it sounds\n" +
                 "  MIDI              Pick a MIDI input, forget knob bindings\n" +
                 "  DAW / Retro       Switch view\n" +
-                "  Help              About\n\n",
+                "  Toolbar           Play (F1-F4), Edit / Jam, SID chip\n\n",
                 bank,
                 "Audio: PortAudio, through PortAudioSharp2. MIDI: the system's own - CoreMIDI, ALSA or " +
                 "Windows MIDI. Windows and controls: Avalonia.");
