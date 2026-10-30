@@ -1,0 +1,15 @@
+name = "magsid-messages"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://magnarharestad.github.io"
+
+# The id "wrangler kv namespace create MESSAGES" prints. Not a secret.
+[[kv_namespaces]]
+binding = "MESSAGES"
+id = "PUT-THE-ID-HERE"
+
+# Secrets, set with "wrangler secret put" and never in this file:
+#   TURNSTILE_SECRET  the secret key of the Turnstile widget
+#   ADMIN_TOKEN       the password for your approval page

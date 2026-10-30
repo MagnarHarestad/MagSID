@@ -52,6 +52,19 @@ h2 + .lead { color:var(--dim); margin:0 0 8px; }
 .note pre code { background:none; padding:0; font-size:13.5px; color:var(--accent); user-select:all; white-space:pre; }
 .note p.small { color:var(--dim); font-size:14px; }
 .legal p { color:var(--dim); }
+.messages label { display:block; font-size:14px; color:var(--dim); margin-bottom:6px; }
+.message-line { display:flex; gap:10px; flex-wrap:wrap; }
+.message-line input { flex:1 1 260px; min-width:0; padding:11px 14px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:10px; font:inherit; }
+.message-line input:focus { outline:none; border-color:var(--accent); }
+.message-line .button { border:0; cursor:pointer; font:inherit; font-weight:600; }
+.message-line .button:disabled { opacity:.6; cursor:default; }
+#message-check { margin-top:12px; }
+.message-status { min-height:1.6em; margin:10px 0 0; color:var(--accent); font-size:14.5px; }
+.message-list { list-style:none; margin:18px 0 0; padding:0; }
+.message-list li { display:flex; gap:14px; justify-content:space-between; align-items:baseline; padding:10px 0; border-top:1px solid var(--border); }
+.message-list span { overflow-wrap:anywhere; min-width:0; }
+.message-list time { flex:none; color:var(--dim); font-size:13px; }
+.messages p.small { color:var(--dim); font-size:13.5px; margin-top:16px; }
 footer { border-top:1px solid var(--border); color:var(--dim); font-size:13px; margin-top:64px; }
 footer .wrap { padding:20px; display:flex; gap:16px; flex-wrap:wrap; }
 footer a { color:var(--dim); }

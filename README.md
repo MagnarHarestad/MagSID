@@ -86,6 +86,7 @@ tests/
 SongData/                 the songs, as plain text
 Digi/                     a sample for the Digi-to-SID-osc feature
 midifiles/                14 public-domain and Creative Commons tunes for Import MIDI
+website-messages/         the website's message wall: a Cloudflare Worker, see its README
 ```
 
 ## The three ports, and what keeps them honest

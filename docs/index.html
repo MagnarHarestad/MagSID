@@ -6,7 +6,7 @@
 <title>MagSID - a C64 music tracker for Windows, macOS and Linux</title>
 <meta name="description" content="MagSID - a tracker for Commodore 64 music on Windows, macOS and Linux, with a tiny SID player that plays exactly what you hear in the editor.">
 <link rel="icon" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <header><div class="wrap"><img src="favicon.png" alt=""><a class="brand" href="./">MagSID</a>
@@ -229,6 +229,22 @@
       and comes with no warranty. Its SID emulation is a C# translation of <b>reSID</b> by Dag Lem; audio and MIDI use
       <b>NAudio</b> by Mark Heath (MIT). See <a href="https://github.com/MagnarHarestad/MagSID/blob/main/THIRD-PARTY-NOTICES.md">third-party notices</a>.</p>
   </section>
+
+  <section class="messages" id="messages" hidden>
+    <h2>Messages</h2>
+    <p class="lead">Leave a line for everyone to read. It shows here once it has been approved.</p>
+    <form id="message-form">
+      <label for="message-text">Your message</label>
+      <div class="message-line">
+        <input id="message-text" type="text" maxlength="140" required autocomplete="off" placeholder="One line, up to 140 characters">
+        <button class="button" id="message-send" type="submit">Send</button>
+      </div>
+      <div id="message-check"></div>
+      <p class="message-status" id="message-status" role="status"></p>
+    </form>
+    <ul class="message-list" id="message-list"></ul>
+    <p class="small">The robot check is Cloudflare Turnstile, loaded when you start writing. Your message and its date are all that is kept.</p>
+  </section>
 </main>
 
 <footer><div class="wrap"><span>© 2026 Magnar Harestad · Censor Design</span><a href="https://github.com/MagnarHarestad/MagSID">Source on GitHub</a><a href="https://github.com/MagnarHarestad/MagSID/releases">Releases</a><a href="https://github.com/MagnarHarestad/MagSID/issues">Report a problem</a><a href="https://magnarharestad.github.io/MagPlaySID/">MagPlaySID</a></div></footer>
@@ -260,6 +276,81 @@ fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
     }
   })
   .catch(() => {});
+
+// The message wall, at the bottom of the page. Stays hidden until these two are filled in, which
+// website-messages/README.md explains. Neither is a secret.
+const MESSAGES = { api: '', turnstileSiteKey: '' };
+
+if (MESSAGES.api && MESSAGES.turnstileSiteKey) {
+  const field = document.getElementById('message-text');
+  const status = document.getElementById('message-status');
+  const send = document.getElementById('message-send');
+  const list = document.getElementById('message-list');
+  let token = '', widget = null, loading = false;
+
+  document.getElementById('messages').hidden = false;
+
+  // textContent throughout: a message is what somebody typed, and never markup.
+  const showWall = messages => list.replaceChildren(...messages.map(({ text, at }) => {
+    const item = document.createElement('li');
+    const line = document.createElement('span');
+    line.textContent = text;
+    const date = document.createElement('time');
+    date.textContent = date.dateTime = at;
+    item.append(line, date);
+    return item;
+  }));
+
+  fetch(MESSAGES.api).then(response => response.ok ? response.json() : []).then(showWall).catch(() => {});
+
+  // Only someone about to write asks Cloudflare for anything.
+  field.addEventListener('focus', () => {
+    if (loading) return;
+    loading = true;
+    window.messageCheckReady = () => {
+      widget = turnstile.render('#message-check', {
+        sitekey: MESSAGES.turnstileSiteKey,
+        theme: 'dark',
+        callback: value => { token = value; status.textContent = ''; },
+        'expired-callback': () => { token = ''; },
+        'error-callback': () => { token = ''; },
+      });
+    };
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=messageCheckReady';
+    script.async = true;
+    script.onerror = () => { status.textContent = 'The robot check could not load. Please try again later.'; };
+    document.head.append(script);
+  });
+
+  document.getElementById('message-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!token) {
+      status.textContent = 'Please finish the robot check first.';
+      return;
+    }
+    send.disabled = true;
+    try {
+      const response = await fetch(MESSAGES.api, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: field.value, token }),
+      });
+      if (response.ok) {
+        field.value = '';
+        status.textContent = 'Thanks! Your message will show here once it has been approved.';
+      } else {
+        status.textContent = (await response.json()).error || 'That did not work. Please try again.';
+      }
+    } catch {
+      status.textContent = 'That did not work. Please try again.';
+    }
+    // A token only works once.
+    token = '';
+    if (widget !== null) turnstile.reset(widget);
+    send.disabled = false;
+  });
+}
 
 // GitHub serves a .s file as text, which a browser shows instead of saving; fetch it and save it
 // under its own name. If that fails the link still opens the text.
