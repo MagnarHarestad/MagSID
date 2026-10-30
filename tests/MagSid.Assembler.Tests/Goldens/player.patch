@@ -1,37 +1,17 @@
 --- Code/musicplayer.s
 +++ Code/musicplayer.s
-@@ -1,639 +1,589 @@
--		; ---  MAGSID v6 - Coded by Magnar Harestad with great help from Robert Lundquist (Krikkit) and Fredrik Ternell (Swallow) of Censor Design!
--
--		; ------------------------------------------------------------
--		; MAGSID Low Memory Player
--		; Designed for Lua-generated tables
--		; Krikkit C6510 Assembler
--		; ------------------------------------------------------------
--
--		// Some helpful Debug stuff:
--		// if (v_voice1 == true && i == 1) || (v_voice1 == false && v_voice2 == true && i == 2) || (v_voice1 == false && v_voice2 == false && v_voice3 == true && i == 3)
--		// m_spacebar_keyonce
--
--		; Pattern stream: variable-length rows. A note is one byte using the current instrument and
--		; duration; only a change emits a command. $00 end, $01-$7F note id, $80-$BF duration 1..64,
--		; $C0-$CF instrument 1..16, $D0 off, $D1 wait, $D2 loop end + count + target, $D3-$FF free.
--		var CMD_DUR   = $80
--		var CMD_INST  = $c0
--		var CMD_OFF   = $d0
--		var CMD_WAIT  = $d1
--		var LOOP_END  = $d2
--
--		; $00 terminates both the note stream and the song-order stream, and costs nothing
--		; to test for - the lda that fetches the byte already sets Z, so a bare beq does it.
--
--		; voice_note holds a note id or one of these two - deliberately the same bytes the stream
--		; uses, so Voice_Tick stores the command straight from A and falls through to .playrow.
--		; ROW_WAIT spends the row's duration without retriggering anything.
--		var NOTE_OFF  = CMD_OFF                ; "---"
--		var ROW_WAIT  = CMD_WAIT
--
--
+@@ -18,6 +18,7 @@
+ 		var CMD_OFF   = $d0
+ 		var CMD_WAIT  = $d1
+ 		var LOOP_END  = $d2
++		var CMD_SLIDE = $d3
+ 
+ 		; $00 terminates both the note stream and the song-order stream, and costs nothing
+ 		; to test for - the lda that fetches the byte already sets Z, so a bare beq does it.
+@@ -29,73 +30,57 @@
+ 		var ROW_WAIT  = CMD_WAIT
+ 
+ 
 -		; ZP_lb/ZP_hb point at the current channel's row table while an event is fetched. ZP_ch
 -		; holds the channel index across the two places in Voice_Tick that hand X to a pattern or
 -		; instrument index and take it back.
@@ -39,16 +19,22 @@
 -		; Every per-channel array is in zero page: "array,x" costs 2 bytes there against 3, worth a
 -		; measured 83 across the player. Only the zero-starting ones moved - music.init clears them,
 -		; since ZP is not loaded. addr.music.zp relocates the block ($20 default, 49 bytes).
--		if !def addr.music.zp
--		var addr.music.zp = $20
--		endif
--
--		m_ZP.b "ZP_lb"
--		m_ZP.b "ZP_hb"
++		; ZP_lb/ZP_hb point at the current channel's row table while an event is fetched.
++
++		; X runs 0, 7, 14 and every per-channel array sits in zero page at that stride, seven of them
++		; interleaved across three rows of seven. So one index reaches a voice's state and its SID
++		; registers, and Y is free for the instrument. Single variables fill what the last row leaves.
++		; music.init clears it all, since ZP is not loaded. addr.music.zp relocates the block.
+ 		if !def addr.music.zp
+ 		var addr.music.zp = $20
+ 		endif
+ 
+ 		m_ZP.b "ZP_lb"
+ 		m_ZP.b "ZP_hb"
 -		m_ZP.b "ZP_ch"
 -
 -		m_ZP.b "Song_Speed"
--		lua {
+ 		lua {
 -			-- One name per byte is what m_ZP.b takes, so the three-channel arrays are declared
 -			-- as a name plus two anonymous followers - consecutive, which is all "array,x" needs.
 -			for _, name in ipairs({ "voice_patternidx", "voice_event", "voice_duration",
@@ -58,7 +44,13 @@
 -				table.insert(__ZPs, name)
 -				table.insert(__ZPs, name .. "_2")
 -				table.insert(__ZPs, name .. "_3")
--			end
++			local arrays = { "voice_patternidx", "voice_event", "voice_duration", "voice_rowdur",
++			                 "voice_wt_pos", "voice_arp_pos", "voice_root", "voice_pw_lo", "voice_pw_hi",
++			                 "voice_inst", "voice_prev_pw", "voice_loop_counter", "voice_last_waveform",
++			                 "voice_orderpos" }
++			local function add(...)
++				for _, name in ipairs({ ... }) do arrays[#arrays + 1] = name end
+ 			end
 -		}
 -		; Slide/vibrato state, same treatment and only when the song uses them. All zero at a
 -		; trigger, so music.init's loop covers them and Voice_PlayCurrent re-arms them per note.
@@ -68,7 +60,9 @@
 -				table.insert(__ZPs, name)
 -				table.insert(__ZPs, name .. "_2")
 -				table.insert(__ZPs, name .. "_3")
--			end
++			if v_vibrato_scan or v_slide_scan then
++				add("voice_freq_lo", "voice_freq_hi", "voice_off_lo", "voice_off_hi")
+ 			end
 -		}
 -		endif
 -		if def v_vibrato
@@ -77,19 +71,39 @@
 -				table.insert(__ZPs, name)
 -				table.insert(__ZPs, name .. "_2")
 -				table.insert(__ZPs, name .. "_3")
--			end
--		}
++			if v_vibrato_scan then add("voice_vib_dir", "voice_vib_cnt", "voice_vib_delay") end
++			if v_slide_scan then add("voice_slide") end
++
++			local scalars = { "Song_Speed", "filter_pos", "filter_phase", "filter_delta" }
++			if v_funk_scan then scalars[#scalars + 1] = "Song_Shuffle" end
++
++			local slots, last = {}, -1
++			for i, name in ipairs(arrays) do
++				local at = math.floor((i - 1) / 7) * 21 + (i - 1) % 7
++				slots[at], slots[at + 7], slots[at + 14] = name, name .. "_2", name .. "_3"
++				last = math.max(last, at + 14)
++			end
++			local next_scalar = 1
++			for at = 0, last do
++				if not slots[at] then
++					slots[at] = scalars[next_scalar] or ("zp_free_" .. at)
++					next_scalar = next_scalar + 1
++				end
++				table.insert(__ZPs, slots[at])
+ 			end
++			for i = next_scalar, #scalars do table.insert(__ZPs, scalars[i]) end
+ 		}
 -		endif
 -
 -		m_ZP.b "filter_pos"
 -		m_ZP.b "filter_phase"
 -		m_ZP.b "filter_delta"
--
--		m_CreateZPs "up", addr.music.zp, "Zero Page MusicPlayer"
--		lua asm('const ZP_Player_Start = ', ZPstart)
--		lua asm('const ZP_Player_Amount = ', ZPamount)
--
--
+ 
+ 		m_CreateZPs "up", addr.music.zp, "Zero Page MusicPlayer"
+ 		lua asm('const ZP_Player_Start = ', ZPstart)
+ 		lua asm('const ZP_Player_Amount = ', ZPamount)
+ 
+ 
 -		; Set ZP_lb/ZP_hb from a lo/hi pointer pair indexed by the pattern number in X. Only the row
 -		; tables need it - their streams run past 256 bytes. The song order fits one byte and uses a
 -		; plain "abs,y" instead, see Voice_AdvanceOrder.
@@ -99,19 +113,13 @@
 -			move8 hi,x, ZP_hb
 -		}
 -
--
--		; --- MUSIC PLAYER LOCATION --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--		org addr.music.loc, "M_Music Player - JMPs for Init and Play"
--		jmp music.init
--		jmp music.play
--
--
--		; Shared per-voice subroutines. X = channel (0,1,2) on entry to all three and preserved.
--		; Song order: $00 ends a list, the next byte is the absolute restart position. All three
--		; channels' lists share one array, so voice_orderpos indexes it absolutely (255 bytes max).
--
--		org @, "M_Music Player - Shared voice subroutines"
--
+ 
+ 		; --- MUSIC PLAYER LOCATION --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 		org addr.music.loc, "M_Music Player - JMPs for Init and Play"
+@@ -109,16 +94,6 @@
+ 
+ 		org @, "M_Music Player - Shared voice subroutines"
+ 
 -Voice_NoteOff:
 -		ldy SID_channel_offset,x
 -		lda voice_last_waveform,x
@@ -122,25 +130,13 @@
 -		                                       ; writes the control register every frame and would
 -		                                       ; put the gate straight back on.
 -
--Voice_AdvanceOrder:
--.read:
--		ldy voice_orderpos,x
--		lda tbl_songorder,y
--		beq .endoflist                         ; the common path falls through
--		sta voice_patternidx,x
--		inc voice_orderpos,x                   ; not iny/tya/sta - Y is dead from here, so
--		                                       ; incrementing the array in place is 2 bytes
--		                                       ; and 2 cycles cheaper than routing it via Y
--		lda #0
--		sta voice_event,x
--		sta voice_loop_counter,x
--		rts
--.endoflist:
--		iny
--		lda tbl_songorder,y                    ; absolute restart position
--		sta voice_orderpos,x
--		jmp .read
--
+ Voice_AdvanceOrder:
+ .read:
+ 		ldy voice_orderpos,x
+@@ -138,157 +113,48 @@
+ 		sta voice_orderpos,x
+ 		jmp .read
+ 
 -; A = note dictionary id, X = channel. Writes the note's frequency and returns with Y
 -; holding that channel's SID offset, which both callers go on to use.
 -
@@ -202,7 +198,10 @@
 -		lda #$08
 -		sta $d404,y
 -.skiphardreset:
--
++; One wavetable step plus ADSR for channel X, every frame rather than every tick - an attack
++; transient needs frame resolution. A step byte goes straight to the control register; $00
++; holds. Pool offset 0 is a dummy $00, so voice_wt_pos = 0 doubles as "nothing running".
+ 
 -		lda voice_inst,x
 -		tax                                    ; X = instrument nr, channel parked in ZP_ch
 -		lda pw_init,x                          ; parked on the stack: A and Y are both busy
@@ -216,7 +215,13 @@
 -		ldx ZP_ch
 -		sta voice_wt_pos,x
 -		tya
--		sta voice_arp_pos,x
++		; The note program's $00: the next byte says where to resume, which is never 0 - the song
++		; tables refuse it - so this always branches. Here, ahead of the entry, because what it
++		; would fall into is harmless, and the rts below is in reach of the entry.
++Voice_ArpLoop:
++		iny
++		lda arp_data-1,y
+ 		sta voice_arp_pos,x
 -		if def v_vibrato
 -		; Arm this note's vibrato: delay from vib_ds's top nibble (x4 frames), first run half a
 -		; speed long (low nibble >> 1), which centres the wave on the note.
@@ -237,7 +242,9 @@
 -		lda #0
 -		endif
 -		endif
--		if def v_freqmod
++		tay
++		bne Voice_ArpStep
+ 		if def v_freqmod
 -		sta voice_off_lo,x                     ; vibrato and slide both start from the bare note
 -		sta voice_off_hi,x
 -		endif
@@ -255,24 +262,29 @@
 -		lda #0                                 ; the instrument's own starting width
 -		sta voice_pw_lo,x
 -.leavesounding:
--		rts
++Voice_AutomationIdle:
+ 		rts
 -
 -; One wavetable step plus ADSR for channel X, every frame rather than every tick - an attack
 -; transient needs frame resolution. A step byte goes straight to the control register; $00
 -; holds. Pool offset 0 is a dummy $00, so voice_wt_pos = 0 doubles as "nothing running".
--
--Voice_Automation:
--		ldy voice_wt_pos,x
++		endif
+ 
+ Voice_Automation:
+ 		ldy voice_wt_pos,x
 -		bne .running                           ; an rts of its own is 2 bytes cheaper than a long
 -		rts                                    ; branch to the .idle the arpeggio paths still use
 -.running:
 -		lda wt_data,y
--		beq .adsr                              ; $00 = hold on the current waveform
++		beq Voice_AutomationIdle
++		lda wt_data-1,y
+ 		beq .adsr                              ; $00 = hold on the current waveform
 -		ldy SID_channel_offset,x
 -		sta $d404,y
--		sta voice_last_waveform,x              ; remembered for Voice_NoteOff (gate off, waveform kept)
--		inc voice_wt_pos,x
--.adsr:
++		sta $d404,x
+ 		sta voice_last_waveform,x              ; remembered for Voice_NoteOff (gate off, waveform kept)
+ 		inc voice_wt_pos,x
+ .adsr:
 -		ldy SID_channel_offset,x
 -		stx ZP_ch
 -		lda voice_inst,x
@@ -281,44 +293,58 @@
 -		sta $d405,y
 -		lda sr_table,x
 -		sta $d406,y
--
--		; Pulse width. $D402/$D403 are write-only, so the width lives in a per-channel shadow and is
--		; rewritten every frame. The delta is sign-extended into all 12 bits, so the sweep travels the
++		ldy voice_inst,x
++		lda ad_table,y
++		sta $d405,x
++		lda sr_table,y
++		sta $d406,x
+ 
+ 		; Pulse width. $D402/$D403 are write-only, so the width lives in a per-channel shadow and is
+ 		; rewritten every frame. The delta is sign-extended into all 12 bits, so the sweep travels the
 -		; whole register and wraps. X is still the instrument index here.
 -		lda pw_add,x
 -		ldx ZP_ch
--		pha
--		clc
--		adc voice_pw_lo,x
--		sta voice_pw_lo,x
++		; whole register and wraps.
++		lda pw_add,y
+ 		pha
+ 		clc
+ 		adc voice_pw_lo,x
+ 		sta voice_pw_lo,x
 -		sta $d402,y
--		pla                                    ; the delta again. None of pla/and/beq/lda
--		and #$80                               ; touches the carry flag either
--		beq .pwhigh
--		lda #$ff                               ; sign extension - this is a downward sweep
--.pwhigh:
--		adc voice_pw_hi,x
--		and #$0f
--		sta voice_pw_hi,x
++		sta $d402,x
+ 		pla                                    ; the delta again. None of pla/and/beq/lda
+ 		and #$80                               ; touches the carry flag either
+ 		beq .pwhigh
+@@ -297,7 +163,7 @@
+ 		adc voice_pw_hi,x
+ 		and #$0f
+ 		sta voice_pw_hi,x
 -		sta $d403,y
--
--.arpentry:
--		; Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
--		; which plays the row's own note - that pair is what makes a drum or a bass transient
--		; expressible.
--		ldy voice_arp_pos,x
--		if def v_freqmod
++		sta $d403,x
+ 
+ .arpentry:
+ 		; Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
+@@ -305,92 +171,74 @@
+ 		; expressible.
+ 		ldy voice_arp_pos,x
+ 		if def v_freqmod
 -		beq .freqmod                           ; instrument has no note program
--		else
++		beq Voice_FreqMod                      ; instrument has no note program
+ 		else
 -		beq .idle                              ; instrument has no note program
--		endif
++		beq Voice_AutomationIdle               ; instrument has no note program
+ 		endif
 -.arpstep:
 -		lda arp_data,y
 -		beq .arploop                           ; $00 = end marker, next byte says where to resume
 -		bpl .arpnote                           ; $01..$7F = a note dictionary id
--		                                       ; else bit 7 set = exactly $80 = ROOT
++Voice_ArpStep:
++		lda arp_data-1,y
++		beq Voice_ArpLoop                      ; $00 = end marker, next byte says where to resume
++		bpl Voice_ArpNote                      ; $01..$7F = a note dictionary id
+ 		                                       ; else bit 7 set = exactly $80 = ROOT
 -.arproot:
--		lda voice_root,x
+ 		lda voice_root,x
 -		if def v_freqmod
 -		jsr Voice_SetFreq
 -		jmp .freqmod
@@ -326,29 +352,56 @@
 -		jmp Voice_SetFreq
 -		endif
 -.arpnote:
--		inc voice_arp_pos,x
++		.byte $2c                              ; bit abs: steps over the inc, a byte under a branch
++Voice_ArpNote:
+ 		inc voice_arp_pos,x
 -		if def v_freqmod
 -		jsr Voice_SetFreq
 -		jmp .freqmod
--		else
++		if !def v_freqmod
++		; A = note dictionary id, X = channel. Writes the note's frequency.
++Voice_SetFreq:
++		tay                                    ; Y = note id, index into note_freq_low/high
++		lda note_freq_low-1,y
++		sta $d400,x
++		lda note_freq_high-1,y
++		sta $d401,x
++Voice_AutomationIdle:
++		rts
+ 		else
 -		jmp Voice_SetFreq                      ; tail call - it ends in the rts this needs
 -		endif
 -.arploop:
 -		iny
 -		lda arp_data,y
 -		sta voice_arp_pos,x
--		tay
++		sec                                    ; a step: on through the offset, unlike a new note
++
++		; A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be
++		; read back for; then a note program (carry set) steps the offset, and a new note (carry
++		; clear) does not.
++Voice_SetFreq:
+ 		tay
 -		bne .arpstep                           ; a target of 0 would stop the arpeggio instead
 -.idle:
 -		rts
--
++		lda note_freq_low-1,y
++		sta voice_freq_lo,x
++		lda note_freq_high-1,y
++		sta voice_freq_hi,x
++		bcc Voice_FmWrite
+ 
 -		if def v_freqmod
 -		; Frequency modulation: slide and vibrato, last in Voice_Automation because the arpeggio
 -		; rewrites the bare note every frame. Both move one signed 16-bit offset; slide adds
 -		; slide_rate a frame, vibrato traces a triangle from vib_ds (delay/speed) and vib_depth.
 -.freqmod:
 -		ldy voice_inst,x
--		if def v_slide
++		; Slide and vibrato, last in Voice_Automation because a note program sets a new bare note
++		; every frame. Both move one signed 16-bit offset, which is added back on top of the note
++		; and written every frame - that is what keeps a slide "100" stopped where it got to.
++Voice_FreqMod:
+ 		if def v_slide
 -		if def v_vibrato
 -		lda slide_rate,y
 -		ora vib_depth,y
@@ -362,9 +415,13 @@
 -		; offset += rate, sign-extended. None of pla/and/beq/lda touches the carry the adc
 -		; produced, the same idiom the pulse-width sweep uses.
 -		pha
--		clc
--		adc voice_off_lo,x
--		sta voice_off_lo,x
++		lda voice_slide,x                      ; offset += rate, sign-extended
++		bpl .slideup
++		dec voice_off_hi,x
++.slideup:
+ 		clc
+ 		adc voice_off_lo,x
+ 		sta voice_off_lo,x
 -		pla
 -		and #$80
 -		beq .slidehigh
@@ -372,8 +429,11 @@
 -.slidehigh:
 -		adc voice_off_hi,x
 -		sta voice_off_hi,x
--		endif
--		if def v_vibrato
++		bcc .slidedone
++		inc voice_off_hi,x
++.slidedone:
+ 		endif
+ 		if def v_vibrato
 -.noslide:
 -		lda vib_depth,y
 -		if def v_slide
@@ -388,485 +448,6 @@
 -		pla
 -		jmp .fmwrite
 -.vibrun:
--		; offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
--		; the carry - set by the compare exactly when dir is $ff - supplies the +1 that turns
--		; ~depth into -depth; dir itself is the sign extension for the high byte.
--		lda voice_vib_dir,x
--		cmp #1
--		pla
--		eor voice_vib_dir,x
--		adc voice_off_lo,x
--		sta voice_off_lo,x
--		lda voice_vib_dir,x
--		adc voice_off_hi,x
--		sta voice_off_hi,x
--		dec voice_vib_cnt,x
--		bpl .fmwrite
--		lda voice_vib_dir,x                    ; run finished: turn round and reload the speed
--		eor #$ff
--		sta voice_vib_dir,x
--		ldy voice_inst,x
--		lda vib_ds,y
--		and #$0f
--		sta voice_vib_cnt,x
--		endif
--.fmwrite:
--		lda voice_freq_lo,x
--		clc
--		adc voice_off_lo,x
--		pha
--		lda voice_freq_hi,x
--		adc voice_off_hi,x
--		ldy SID_channel_offset,x
--		sta $d401,y
--		pla
--		sta $d400,y
--		rts
--		endif
--
--		; --- MUSIC INIT --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--		org @, "M_Music Player - Init code"
--music.init:
--		; ZP is not part of the loaded image, so state that used to be initialised by its own
--		; ".byte 0,0,0" is cleared here - before the Voice_AdvanceOrder loop, which writes
--		; voice_event and voice_loop_counter.
--		lda #0
--		ldx #ZP_Player_Amount-1
--.zerostate:
--		sta ZP_Player_Start,x
--		dex
--		bpl .zerostate
--
--		move8 #$0f, $d418
--		if def musicshower
--		move8 #$0f, show_d418
--		endif
--		ldx #v_channels-1
--.initchannel:
--		jsr Voice_AdvanceOrder                 ; preserves X
--		dex
--		bpl .initchannel
--		rts
--
--		; Per-channel state. Only the two arrays carrying real initial values live here; the rest is
--		; in zero page (see the m_ZP block at the top) and zeroed by music.init. Always "array,x".
--
--		voice_orderpos:    .byte v_ord_start1, v_ord_start2, v_ord_start3
--		SID_channel_offset: .byte 0,7,14
--
--		if def musicshower
--		show_d418:         .byte 0            ; shadows of the three write-only filter registers
--		show_d417:         .byte 0            ; - display only, see Filter_Play
--		show_d416:         .byte 0
--		endif
--
--
--		; --- MUSIC PLAYER --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--		org @, "M_Music Player - Play code"
--music.play:
--
--		; Wavetables first and on every frame - that is what gives them frame resolution. Counting
--		; down saves the cpx; it reverses the write order within a frame, but the writes and the
--		; per-frame register state are identical and the voices are independent, so it is inaudible.
--		ldx #v_channels-1
--.nextvoice:
--		jsr Voice_Automation
--		dex
--		bpl .nextvoice
--
--Filter_Play:
--		; Filter, once per frame and before the row fetch, so a program claimed this frame takes its
--		; first step next frame. Byte stream: $01..$FE steps the cutoff, $FF introduces a four-byte
--		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
--		ldx filter_pos
--		beq .filterdone                        ; nothing has claimed the filter yet
--		lda flt_data,x
--		beq .filterdone                        ; program finished - hold the last cutoff
--		cmp #$ff
--		bne .filtercut
--		inx
--		lda flt_data,x
--		sta $d418                              ; filter mode + master volume
--		if def musicshower
--		sta show_d418                          ; $d418/$d417/$d416 cannot be read back, so the
--		endif                                  ; shower needs a shadow of each. Gated: a .sid
--		inx                                    ; export has no shower and pays nothing.
--		lda flt_data,x
--		sta $d417                              ; resonance + which voices are routed through
--		if def musicshower
--		sta show_d417
--		endif
--		inx
--		lda flt_data,x
--		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
--		inx
--		lda flt_data,x
--.filtercut:
--		sta $d416
--		if def musicshower
--		sta show_d416
--		endif
--		inx
--		stx filter_pos
--.filterdone:
--
--		; Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed rate
--		; and wraps, the cutoff folds the top half back down and doubles. That fold is what makes it
--		; ping-pong without bounds checks - 20 bytes, at the cost of a fixed $00..$FE range.
--		lda filter_delta
--		beq .sweepdone                         ; 0 = no sweep running
--		clc
--		adc filter_phase
--		sta filter_phase
--		bpl .sweepup
--		eor #$ff                               ; past the top: fold back down
--.sweepup:
--		asl
--		sta $d416
--		if def musicshower
--		sta show_d416
--		endif
--.sweepdone:
--
--		dec Song_Speed
--		bmi ONbeat.PlaySong
--		rts                                     ; between ticks: the filter already stepped above
--ONbeat.PlaySong:
--		move8 #v_Song_Speed, Song_Speed
--
--; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
--; below is this routine's own.
--
--Player_Play:
--		ldx #v_channels-1                      ; descending, same reasoning as music.play's own
--.nextchannel:                                  ; channel loop above
--		jsr Voice_Tick                         ; preserves X
--		dex
--		bpl .nextchannel
--		rts
--
--; Per-channel tick. X = channel on entry and preserved on every exit. One subroutine indexed
--; by X rather than three macro copies, which used to cost 592 of the player's 794 bytes.
--; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
--
--Voice_Tick:
--		stx ZP_ch
--
--		; Count down first and test the result rather than testing for zero then decrementing: a row
--		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
--		; voice_duration from voice_rowdur first.
--		dec voice_duration,x
--		bmi .fetch
--		rts
--
--.fetch:
--		lda voice_patternidx,x
--		tax                                    ; X = pattern index, channel parked in ZP_ch
--		m_setptr_x tbl_rows_lo tbl_rows_hi
--		ldx ZP_ch
--.fetchrow:
--		ldy voice_event,x
--.nextcmd:
--		lda (ZP_lb),y
--		beq .endofpattern
--		bpl .playrow                           ; $01..$7F is a note id - store it as it stands
--		cmp #CMD_INST
--		bcc .setduration                       ; $80..$BF
--		cmp #CMD_OFF
--		bcc .setinstrument                     ; $C0..$CF
--		cmp #LOOP_END
--		bne .playrow                           ; $D0/$D1 - note off and wait are stored as the
--		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
--		                                       ; are defined to be. Falls through on $D2 into .loopend,
--		                                       ; which is why that block has to stay right here.
--
--.loopend:
--		; $D2, then the repeat count (0 = bare LE, loops forever), then the byte offset to
--		; jump back to (the most recent LS, or pattern start if none). Unchanged from the
--		; fixed-length format, where those three sat in one row - the layout is the same.
--		iny
--		lda (ZP_lb),y
--		beq .loopback
--		; ISC (illegal $F7 zp,x) is INC then SBC, so this one instruction is the inc + cmp pair it
--		; replaces: with carry set, SBC gives A - counter, zero exactly when equal. CARRY MUST BE SET
--		; - it is, only because the sole way in is the falling-through cmp #LOOP_END above.
--		isc voice_loop_counter,x
--		bne .loopback
--		sta voice_loop_counter,x               ; A is already 0 - it is the A-counter the isc
--		                                       ; just computed, and this path only runs when
--		                                       ; that difference was zero
--		iny                                    ; step past the target byte to the next row
--		iny
--		jmp .nextcmd                           ; Y is already the new offset, so there is no
--		                                       ; need to store it and have .fetchrow load it straight
--		                                       ; back - nothing between here and .playrow reads
--		                                       ; voice_event, and both of those write it themselves.
--.loopback:
--		iny
--		lda (ZP_lb),y
--		tay                                    ; same reasoning - jump straight in with Y set
--		jmp .nextcmd
--
--		; Masking rather than subtracting: the dispatch above already proved which range the
--		; byte is in, so the low bits are the value and a single AND isolates them - one byte
--		; less than sec/sbc, and it leaves no carry to think about.
--.setduration:
--		and #$3f                               ; $80..$BF -> 0..63 further ticks, so a row lasts
--		                                       ; 1..64 and one authored row line is one tick
--		sta voice_rowdur,x
--		bpl .advance                           ; always - "and #$3f" cannot set N, and the sta
--		                                       ; between does not touch flags at all
--
--.setinstrument:
--		and #$0f                               ; $C0..$CF -> 0..15
--		sta voice_inst,x
--.advance:
--		iny
--		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
--
--.playrow:
--		sta voice_note,x
--		iny
--		tya
--		sta voice_event,x
--		lda voice_rowdur,x                     ; the row takes however long is current
--		sta voice_duration,x
--		jmp Voice_PlayCurrent                  ; tail call - its rts returns to our caller
--
--.endofpattern:
--		jsr Voice_AdvanceOrder                 ; reuses ZP_lb/hb, so re-derive the row pointer
--		jmp .fetch
--
--; Required Lua-generated tables (Startup\Tables.s): note_freq_low/high, tbl_rows_pat*,
--; tbl_rows_lo/hi, tbl_songorder, ad_table, sr_table, wt_start/wt_data, arp_start/arp_data,
--; flt_start/flt_data, pw_init, pw_add, plus vib_ds/vib_depth and slide_rate when used.
-+		; ---  MAGSID v6 - Coded by Magnar Harestad with great help from Robert Lundquist (Krikkit) and Fredrik Ternell (Swallow) of Censor Design!
-+
-+		; ------------------------------------------------------------
-+		; MAGSID Low Memory Player
-+		; Designed for Lua-generated tables
-+		; Krikkit C6510 Assembler
-+		; ------------------------------------------------------------
-+
-+		// Some helpful Debug stuff:
-+		// if (v_voice1 == true && i == 1) || (v_voice1 == false && v_voice2 == true && i == 2) || (v_voice1 == false && v_voice2 == false && v_voice3 == true && i == 3)
-+		// m_spacebar_keyonce
-+
-+		; Pattern stream: variable-length rows. A note is one byte using the current instrument and
-+		; duration; only a change emits a command. $00 end, $01-$7F note id, $80-$BF duration 1..64,
-+		; $C0-$CF instrument 1..16, $D0 off, $D1 wait, $D2 loop end + count + target, $D3-$FF free.
-+		var CMD_DUR   = $80
-+		var CMD_INST  = $c0
-+		var CMD_OFF   = $d0
-+		var CMD_WAIT  = $d1
-+		var LOOP_END  = $d2
-+		var CMD_SLIDE = $d3
-+
-+		; $00 terminates both the note stream and the song-order stream, and costs nothing
-+		; to test for - the lda that fetches the byte already sets Z, so a bare beq does it.
-+
-+		; voice_note holds a note id or one of these two - deliberately the same bytes the stream
-+		; uses, so Voice_Tick stores the command straight from A and falls through to .playrow.
-+		; ROW_WAIT spends the row's duration without retriggering anything.
-+		var NOTE_OFF  = CMD_OFF                ; "---"
-+		var ROW_WAIT  = CMD_WAIT
-+
-+
-+		; ZP_lb/ZP_hb point at the current channel's row table while an event is fetched.
-+
-+		; X runs 0, 7, 14 and every per-channel array sits in zero page at that stride, seven of them
-+		; interleaved across three rows of seven. So one index reaches a voice's state and its SID
-+		; registers, and Y is free for the instrument. Single variables fill what the last row leaves.
-+		; music.init clears it all, since ZP is not loaded. addr.music.zp relocates the block.
-+		if !def addr.music.zp
-+		var addr.music.zp = $20
-+		endif
-+
-+		m_ZP.b "ZP_lb"
-+		m_ZP.b "ZP_hb"
-+		lua {
-+			local arrays = { "voice_patternidx", "voice_event", "voice_duration", "voice_rowdur",
-+			                 "voice_wt_pos", "voice_arp_pos", "voice_root", "voice_pw_lo", "voice_pw_hi",
-+			                 "voice_inst", "voice_prev_pw", "voice_loop_counter", "voice_last_waveform",
-+			                 "voice_orderpos" }
-+			local function add(...)
-+				for _, name in ipairs({ ... }) do arrays[#arrays + 1] = name end
-+			end
-+			if v_vibrato_scan or v_slide_scan then
-+				add("voice_freq_lo", "voice_freq_hi", "voice_off_lo", "voice_off_hi")
-+			end
-+			if v_vibrato_scan then add("voice_vib_dir", "voice_vib_cnt", "voice_vib_delay") end
-+			if v_slide_scan then add("voice_slide") end
-+
-+			local scalars = { "Song_Speed", "filter_pos", "filter_phase", "filter_delta" }
-+			if v_funk_scan then scalars[#scalars + 1] = "Song_Shuffle" end
-+
-+			local slots, last = {}, -1
-+			for i, name in ipairs(arrays) do
-+				local at = math.floor((i - 1) / 7) * 21 + (i - 1) % 7
-+				slots[at], slots[at + 7], slots[at + 14] = name, name .. "_2", name .. "_3"
-+				last = math.max(last, at + 14)
-+			end
-+			local next_scalar = 1
-+			for at = 0, last do
-+				if not slots[at] then
-+					slots[at] = scalars[next_scalar] or ("zp_free_" .. at)
-+					next_scalar = next_scalar + 1
-+				end
-+				table.insert(__ZPs, slots[at])
-+			end
-+			for i = next_scalar, #scalars do table.insert(__ZPs, scalars[i]) end
-+		}
-+
-+		m_CreateZPs "up", addr.music.zp, "Zero Page MusicPlayer"
-+		lua asm('const ZP_Player_Start = ', ZPstart)
-+		lua asm('const ZP_Player_Amount = ', ZPamount)
-+
-+
-+
-+		; --- MUSIC PLAYER LOCATION --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-+		org addr.music.loc, "M_Music Player - JMPs for Init and Play"
-+		jmp music.init
-+		jmp music.play
-+
-+
-+		; Shared per-voice subroutines. X = channel (0,1,2) on entry to all three and preserved.
-+		; Song order: $00 ends a list, the next byte is the absolute restart position. All three
-+		; channels' lists share one array, so voice_orderpos indexes it absolutely (255 bytes max).
-+
-+		org @, "M_Music Player - Shared voice subroutines"
-+
-+Voice_AdvanceOrder:
-+.read:
-+		ldy voice_orderpos,x
-+		lda tbl_songorder,y
-+		beq .endoflist                         ; the common path falls through
-+		sta voice_patternidx,x
-+		inc voice_orderpos,x                   ; not iny/tya/sta - Y is dead from here, so
-+		                                       ; incrementing the array in place is 2 bytes
-+		                                       ; and 2 cycles cheaper than routing it via Y
-+		lda #0
-+		sta voice_event,x
-+		sta voice_loop_counter,x
-+		rts
-+.endoflist:
-+		iny
-+		lda tbl_songorder,y                    ; absolute restart position
-+		sta voice_orderpos,x
-+		jmp .read
-+
-+; One wavetable step plus ADSR for channel X, every frame rather than every tick - an attack
-+; transient needs frame resolution. A step byte goes straight to the control register; $00
-+; holds. Pool offset 0 is a dummy $00, so voice_wt_pos = 0 doubles as "nothing running".
-+
-+		; The note program's $00: the next byte says where to resume, which is never 0 - the song
-+		; tables refuse it - so this always branches. Here, ahead of the entry, because what it
-+		; would fall into is harmless, and the rts below is in reach of the entry.
-+Voice_ArpLoop:
-+		iny
-+		lda arp_data-1,y
-+		sta voice_arp_pos,x
-+		tay
-+		bne Voice_ArpStep
-+		if def v_freqmod
-+Voice_AutomationIdle:
-+		rts
-+		endif
-+
-+Voice_Automation:
-+		ldy voice_wt_pos,x
-+		beq Voice_AutomationIdle
-+		lda wt_data-1,y
-+		beq .adsr                              ; $00 = hold on the current waveform
-+		sta $d404,x
-+		sta voice_last_waveform,x              ; remembered for Voice_NoteOff (gate off, waveform kept)
-+		inc voice_wt_pos,x
-+.adsr:
-+		ldy voice_inst,x
-+		lda ad_table,y
-+		sta $d405,x
-+		lda sr_table,y
-+		sta $d406,x
-+
-+		; Pulse width. $D402/$D403 are write-only, so the width lives in a per-channel shadow and is
-+		; rewritten every frame. The delta is sign-extended into all 12 bits, so the sweep travels the
-+		; whole register and wraps.
-+		lda pw_add,y
-+		pha
-+		clc
-+		adc voice_pw_lo,x
-+		sta voice_pw_lo,x
-+		sta $d402,x
-+		pla                                    ; the delta again. None of pla/and/beq/lda
-+		and #$80                               ; touches the carry flag either
-+		beq .pwhigh
-+		lda #$ff                               ; sign extension - this is a downward sweep
-+.pwhigh:
-+		adc voice_pw_hi,x
-+		and #$0f
-+		sta voice_pw_hi,x
-+		sta $d403,x
-+
-+.arpentry:
-+		; Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
-+		; which plays the row's own note - that pair is what makes a drum or a bass transient
-+		; expressible.
-+		ldy voice_arp_pos,x
-+		if def v_freqmod
-+		beq Voice_FreqMod                      ; instrument has no note program
-+		else
-+		beq Voice_AutomationIdle               ; instrument has no note program
-+		endif
-+Voice_ArpStep:
-+		lda arp_data-1,y
-+		beq Voice_ArpLoop                      ; $00 = end marker, next byte says where to resume
-+		bpl Voice_ArpNote                      ; $01..$7F = a note dictionary id
-+		                                       ; else bit 7 set = exactly $80 = ROOT
-+		lda voice_root,x
-+		.byte $2c                              ; bit abs: steps over the inc, a byte under a branch
-+Voice_ArpNote:
-+		inc voice_arp_pos,x
-+		if !def v_freqmod
-+		; A = note dictionary id, X = channel. Writes the note's frequency.
-+Voice_SetFreq:
-+		tay                                    ; Y = note id, index into note_freq_low/high
-+		lda note_freq_low-1,y
-+		sta $d400,x
-+		lda note_freq_high-1,y
-+		sta $d401,x
-+Voice_AutomationIdle:
-+		rts
-+		else
-+		sec                                    ; a step: on through the offset, unlike a new note
-+
-+		; A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be
-+		; read back for; then a note program (carry set) steps the offset, and a new note (carry
-+		; clear) does not.
-+Voice_SetFreq:
-+		tay
-+		lda note_freq_low-1,y
-+		sta voice_freq_lo,x
-+		lda note_freq_high-1,y
-+		sta voice_freq_hi,x
-+		bcc Voice_FmWrite
-+
-+		; Slide and vibrato, last in Voice_Automation because a note program sets a new bare note
-+		; every frame. Both move one signed 16-bit offset, which is added back on top of the note
-+		; and written every frame - that is what keeps a slide "100" stopped where it got to.
-+Voice_FreqMod:
-+		if def v_slide
-+		lda voice_slide,x                      ; offset += rate, sign-extended
-+		bpl .slideup
-+		dec voice_off_hi,x
-+.slideup:
-+		clc
-+		adc voice_off_lo,x
-+		sta voice_off_lo,x
-+		bcc .slidedone
-+		inc voice_off_hi,x
-+.slidedone:
-+		endif
-+		if def v_vibrato
 +		ldy voice_inst,x
 +		if def v_vib_guard
 +		cpy #v_vib_count                       ; instruments with vibrato come first: the tables
@@ -875,148 +456,125 @@
 +		dec voice_vib_delay,x                  ; counts down to 0 and stays there: the inc puts
 +		bpl Voice_FmWrite                      ; back what going past 0 took off
 +		inc voice_vib_delay,x
-+		; offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
+ 		; offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
+-		; the carry - set by the compare exactly when dir is $ff - supplies the +1 that turns
+-		; ~depth into -depth; dir itself is the sign extension for the high byte.
 +		; the carry - bit 7 of dir, out of the asl - supplies the +1 that turns ~depth into
 +		; -depth; dir itself is the sign extension for the high byte.
-+		lda voice_vib_dir,x
+ 		lda voice_vib_dir,x
+-		cmp #1
+-		pla
 +		asl
 +		lda vib_depth,y
-+		eor voice_vib_dir,x
-+		adc voice_off_lo,x
-+		sta voice_off_lo,x
-+		lda voice_vib_dir,x
-+		adc voice_off_hi,x
-+		sta voice_off_hi,x
-+		dec voice_vib_cnt,x
+ 		eor voice_vib_dir,x
+ 		adc voice_off_lo,x
+ 		sta voice_off_lo,x
+@@ -398,26 +246,22 @@
+ 		adc voice_off_hi,x
+ 		sta voice_off_hi,x
+ 		dec voice_vib_cnt,x
+-		bpl .fmwrite
 +		bpl Voice_FmWrite
-+		lda voice_vib_dir,x                    ; run finished: turn round and reload the speed
-+		eor #$ff
-+		sta voice_vib_dir,x
-+		lda vib_ds,y
-+		and #$0f
-+		sta voice_vib_cnt,x
-+		endif
+ 		lda voice_vib_dir,x                    ; run finished: turn round and reload the speed
+ 		eor #$ff
+ 		sta voice_vib_dir,x
+-		ldy voice_inst,x
+ 		lda vib_ds,y
+ 		and #$0f
+ 		sta voice_vib_cnt,x
+ 		endif
+-.fmwrite:
 +Voice_FmWrite:
-+		lda voice_freq_lo,x
-+		clc
-+		adc voice_off_lo,x
+ 		lda voice_freq_lo,x
+ 		clc
+ 		adc voice_off_lo,x
+-		pha
 +		sta $d400,x
-+		lda voice_freq_hi,x
-+		adc voice_off_hi,x
+ 		lda voice_freq_hi,x
+ 		adc voice_off_hi,x
+-		ldy SID_channel_offset,x
+-		sta $d401,y
+-		pla
+-		sta $d400,y
 +		sta $d401,x
-+		rts
-+		endif
-+
-+		; --- MUSIC INIT --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-+		org @, "M_Music Player - Init code"
-+music.init:
-+		; ZP is not part of the loaded image, so state that used to be initialised by its own
-+		; ".byte 0,0,0" is cleared here - before the Voice_AdvanceOrder loop, which writes
-+		; voice_event and voice_loop_counter.
-+		lda #0
-+		ldx #ZP_Player_Amount-1
-+.zerostate:
-+		sta ZP_Player_Start,x
-+		dex
-+		bpl .zerostate
-+
-+		move8 #$0f, $d418
-+		if def musicshower
-+		move8 #$0f, show_d418
-+		endif
+ 		rts
+ 		endif
+ 
+@@ -438,18 +282,19 @@
+ 		if def musicshower
+ 		move8 #$0f, show_d418
+ 		endif
+-		ldx #v_channels-1
 +		move8 #v_ord_start2, voice_orderpos_2  ; the first channel's list starts at 0, as cleared
 +		move8 #v_ord_start3, voice_orderpos_3
 +		ldx #(v_channels-1)*7
-+.initchannel:
-+		jsr Voice_AdvanceOrder                 ; preserves X
+ .initchannel:
+ 		jsr Voice_AdvanceOrder                 ; preserves X
+-		dex
 +		txa
 +		axs #7
-+		bpl .initchannel
-+		rts
-+
-+		; Per-channel state. Only the two arrays carrying real initial values live here; the rest is
-+		; in zero page (see the m_ZP block at the top) and zeroed by music.init. Always "array,x".
-+
-+
-+		if def musicshower
-+		show_d418:         .byte 0            ; shadows of the three write-only filter registers
-+		show_d417:         .byte 0            ; - display only, see Filter_Play
-+		show_d416:         .byte 0
-+		endif
-+
-+
-+		; --- MUSIC PLAYER --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-+		org @, "M_Music Player - Play code"
-+music.play:
-+
-+		; Wavetables first and on every frame - that is what gives them frame resolution. Counting
-+		; down saves the cpx; it reverses the write order within a frame, but the writes and the
-+		; per-frame register state are identical and the voices are independent, so it is inaudible.
+ 		bpl .initchannel
+ 		rts
+ 
+ 		; Per-channel state. Only the two arrays carrying real initial values live here; the rest is
+ 		; in zero page (see the m_ZP block at the top) and zeroed by music.init. Always "array,x".
+ 
+-		voice_orderpos:    .byte v_ord_start1, v_ord_start2, v_ord_start3
+-		SID_channel_offset: .byte 0,7,14
+ 
+ 		if def musicshower
+ 		show_d418:         .byte 0            ; shadows of the three write-only filter registers
+@@ -465,10 +310,11 @@
+ 		; Wavetables first and on every frame - that is what gives them frame resolution. Counting
+ 		; down saves the cpx; it reverses the write order within a frame, but the writes and the
+ 		; per-frame register state are identical and the voices are independent, so it is inaudible.
+-		ldx #v_channels-1
 +		ldx #(v_channels-1)*7
-+.nextvoice:
-+		jsr Voice_Automation
+ .nextvoice:
+ 		jsr Voice_Automation
+-		dex
 +		txa
 +		axs #7
-+		bpl .nextvoice
-+
-+Filter_Play:
-+		; Filter, once per frame and before the row fetch, so a program claimed this frame takes its
-+		; first step next frame. Byte stream: $01..$FE steps the cutoff, $FF introduces a four-byte
-+		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
-+		ldx filter_pos
-+		beq .filterdone                        ; nothing has claimed the filter yet
+ 		bpl .nextvoice
+ 
+ Filter_Play:
+@@ -477,27 +323,27 @@
+ 		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
+ 		ldx filter_pos
+ 		beq .filterdone                        ; nothing has claimed the filter yet
+-		lda flt_data,x
 +		lda flt_data-1,x
-+		beq .filterdone                        ; program finished - hold the last cutoff
-+		cmp #$ff
-+		bne .filtercut
-+		inx
+ 		beq .filterdone                        ; program finished - hold the last cutoff
+ 		cmp #$ff
+ 		bne .filtercut
+ 		inx
+-		lda flt_data,x
 +		lda flt_data-1,x
-+		sta $d418                              ; filter mode + master volume
-+		if def musicshower
-+		sta show_d418                          ; $d418/$d417/$d416 cannot be read back, so the
-+		endif                                  ; shower needs a shadow of each. Gated: a .sid
-+		inx                                    ; export has no shower and pays nothing.
+ 		sta $d418                              ; filter mode + master volume
+ 		if def musicshower
+ 		sta show_d418                          ; $d418/$d417/$d416 cannot be read back, so the
+ 		endif                                  ; shower needs a shadow of each. Gated: a .sid
+ 		inx                                    ; export has no shower and pays nothing.
+-		lda flt_data,x
 +		lda flt_data-1,x
-+		sta $d417                              ; resonance + which voices are routed through
-+		if def musicshower
-+		sta show_d417
-+		endif
-+		inx
+ 		sta $d417                              ; resonance + which voices are routed through
+ 		if def musicshower
+ 		sta show_d417
+ 		endif
+ 		inx
+-		lda flt_data,x
 +		lda flt_data-1,x
-+		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
-+		inx
+ 		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
+ 		inx
+-		lda flt_data,x
 +		lda flt_data-1,x
-+.filtercut:
-+		sta $d416
-+		if def musicshower
-+		sta show_d416
-+		endif
-+		inx
-+		stx filter_pos
-+.filterdone:
-+
-+		; Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed rate
-+		; and wraps, the cutoff folds the top half back down and doubles. That fold is what makes it
-+		; ping-pong without bounds checks - 20 bytes, at the cost of a fixed $00..$FE range.
-+		lda filter_delta
-+		beq .sweepdone                         ; 0 = no sweep running
-+		clc
-+		adc filter_phase
-+		sta filter_phase
-+		bpl .sweepup
-+		eor #$ff                               ; past the top: fold back down
-+.sweepup:
-+		asl
-+		sta $d416
-+		if def musicshower
-+		sta show_d416
-+		endif
-+.sweepdone:
-+
-+		dec Song_Speed
-+		bmi ONbeat.PlaySong
-+		rts                                     ; between ticks: the filter already stepped above
-+ONbeat.PlaySong:
+ .filtercut:
+ 		sta $d416
+ 		if def musicshower
+@@ -529,16 +375,27 @@
+ 		bmi ONbeat.PlaySong
+ 		rts                                     ; between ticks: the filter already stepped above
+ ONbeat.PlaySong:
 +		if def v_Song_Funk
 +		; Funk speed: Song_Shuffle starts at 0 and flips with the speeds' difference every tick, so
 +		; the tick lengths run v_Song_Speed, v_Song_Funk, v_Song_Speed... - no init code needed.
@@ -1026,113 +584,83 @@
 +		eor #v_Song_Funk
 +		sta Song_Speed
 +		else
-+		move8 #v_Song_Speed, Song_Speed
+ 		move8 #v_Song_Speed, Song_Speed
 +		endif
-+
-+; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
-+; below is this routine's own.
-+
-+Player_Play:
+ 
+ ; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
+ ; below is this routine's own.
+ 
+ Player_Play:
+-		ldx #v_channels-1                      ; descending, same reasoning as music.play's own
 +		ldx #(v_channels-1)*7                      ; descending, same reasoning as music.play's own
-+.nextchannel:                                  ; channel loop above
-+		jsr Voice_Tick                         ; preserves X
+ .nextchannel:                                  ; channel loop above
+ 		jsr Voice_Tick                         ; preserves X
+-		dex
 +		txa
 +		axs #7
-+		bpl .nextchannel
-+		rts
-+
-+; Per-channel tick. X = channel on entry and preserved on every exit. One subroutine indexed
-+; by X rather than three macro copies, which used to cost 592 of the player's 794 bytes.
-+; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
-+
-+Voice_Tick:
-+		; Count down first and test the result rather than testing for zero then decrementing: a row
-+		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
-+		; voice_duration from voice_rowdur first.
-+		dec voice_duration,x
-+		bmi .fetch
-+		rts
-+
-+.fetch:
+ 		bpl .nextchannel
+ 		rts
+ 
+@@ -547,8 +404,6 @@
+ ; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
+ 
+ Voice_Tick:
+-		stx ZP_ch
+-
+ 		; Count down first and test the result rather than testing for zero then decrementing: a row
+ 		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
+ 		; voice_duration from voice_rowdur first.
+@@ -557,10 +412,11 @@
+ 		rts
+ 
+ .fetch:
+-		lda voice_patternidx,x
+-		tax                                    ; X = pattern index, channel parked in ZP_ch
+-		m_setptr_x tbl_rows_lo tbl_rows_hi
+-		ldx ZP_ch
 +		ldy voice_patternidx,x                 ; Y = pattern index, so X stays the channel -
 +		lda tbl_rows_lo-1,y                      ; 3 bytes less than borrowing X and putting it
 +		sta ZP_lb                              ; back from ZP_ch
 +		lda tbl_rows_hi-1,y
 +		sta ZP_hb
-+.fetchrow:
-+		ldy voice_event,x
-+.nextcmd:
-+		lda (ZP_lb),y
-+		beq .endofpattern
-+		bpl .playrow                           ; $01..$7F is a note id - store it as it stands
-+		cmp #CMD_INST
-+		bcc .setduration                       ; $80..$BF
-+		cmp #CMD_OFF
-+		bcc .setinstrument                     ; $C0..$CF
-+		cmp #LOOP_END
+ .fetchrow:
+ 		ldy voice_event,x
+ .nextcmd:
+@@ -572,7 +428,12 @@
+ 		cmp #CMD_OFF
+ 		bcc .setinstrument                     ; $C0..$CF
+ 		cmp #LOOP_END
 +		if def v_slide
 +		bcc .playrow
 +		bne .slide                             ; $D3, only in a song with slide rows
 +		else
-+		bne .playrow                           ; $D0/$D1 - note off and wait are stored as the
+ 		bne .playrow                           ; $D0/$D1 - note off and wait are stored as the
 +		endif
-+		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
-+		                                       ; are defined to be. Falls through on $D2 into .loopend,
-+		                                       ; which is why that block has to stay right here.
-+
-+.loopend:
-+		; $D2, then the repeat count (0 = bare LE, loops forever), then the byte offset to
-+		; jump back to (the most recent LS, or pattern start if none). Unchanged from the
-+		; fixed-length format, where those three sat in one row - the layout is the same.
-+		iny
-+		lda (ZP_lb),y
-+		beq .loopback
-+		; ISC (illegal $F7 zp,x) is INC then SBC, so this one instruction is the inc + cmp pair it
-+		; replaces: with carry set, SBC gives A - counter, zero exactly when equal. CARRY MUST BE SET
-+		; - it is, only because the sole way in is the falling-through cmp #LOOP_END above.
-+		isc voice_loop_counter,x
-+		bne .loopback
-+		sta voice_loop_counter,x               ; A is already 0 - it is the A-counter the isc
-+		                                       ; just computed, and this path only runs when
-+		                                       ; that difference was zero
-+		iny                                    ; step past the target byte to the next row
-+		iny
-+		jmp .nextcmd                           ; Y is already the new offset, so there is no
-+		                                       ; need to store it and have .fetchrow load it straight
-+		                                       ; back - nothing between here and .playrow reads
-+		                                       ; voice_event, and both of those write it themselves.
-+.loopback:
-+		iny
-+		lda (ZP_lb),y
-+		tay                                    ; same reasoning - jump straight in with Y set
-+		jmp .nextcmd
-+
+ 		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
+ 		                                       ; are defined to be. Falls through on $D2 into .loopend,
+ 		                                       ; which is why that block has to stay right here.
+@@ -604,6 +465,10 @@
+ 		tay                                    ; same reasoning - jump straight in with Y set
+ 		jmp .nextcmd
+ 
 +.endofpattern:
 +		jsr Voice_AdvanceOrder                 ; reuses ZP_lb/hb, so re-derive the row pointer
 +		jmp .fetch
 +
-+		; Masking rather than subtracting: the dispatch above already proved which range the
-+		; byte is in, so the low bits are the value and a single AND isolates them - one byte
-+		; less than sec/sbc, and it leaves no carry to think about.
-+.setduration:
-+		and #$3f                               ; $80..$BF -> 0..63 further ticks, so a row lasts
-+		                                       ; 1..64 and one authored row line is one tick
-+		sta voice_rowdur,x
-+		bpl .advance                           ; always - "and #$3f" cannot set N, and the sta
-+		                                       ; between does not touch flags at all
-+
-+.setinstrument:
-+		and #$0f                               ; $C0..$CF -> 0..15
-+		sta voice_inst,x
-+.advance:
-+		iny
-+		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
-+
+ 		; Masking rather than subtracting: the dispatch above already proved which range the
+ 		; byte is in, so the low bits are the value and a single AND isolates them - one byte
+ 		; less than sec/sbc, and it leaves no carry to think about.
+@@ -621,18 +486,103 @@
+ 		iny
+ 		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
+ 
+-.playrow:
+-		sta voice_note,x
 +		if def v_slide
 +		; $D3, then the signed rate: a wait row that also sets the voice's slide, leaving as
 +		; ROW_WAIT with Y on the rate byte so .playrow steps past it.
 +.slide:
-+		iny
+ 		iny
 +		lda (ZP_lb),y
 +		sta voice_slide,x
 +		lda #ROW_WAIT
@@ -1211,13 +739,20 @@
 +		asr #$f0                               ; ALR: and #$f0 + lsr, same flags
 +		lsr
 +		sta voice_vib_delay,x
-+		tya
+ 		tya
+-		sta voice_event,x
+-		lda voice_rowdur,x                     ; the row takes however long is current
+-		sta voice_duration,x
+-		jmp Voice_PlayCurrent                  ; tail call - its rts returns to our caller
 +		asr #$0f                               ; ALR: and #$0f + lsr
 +		sta voice_vib_cnt,x
 +		endif
 +.leavesounding:
 +		rts
-+
+ 
+-.endofpattern:
+-		jsr Voice_AdvanceOrder                 ; reuses ZP_lb/hb, so re-derive the row pointer
+-		jmp .fetch
 +Voice_NoteOff:
 +		lda voice_last_waveform,x
 +		and #$fe                               ; clear gate bit only - keep the waveform-select
@@ -1225,10 +760,9 @@
 +		move8 #wt_hold-wt_data+1, voice_wt_pos,x  ; silent and masks the envelope's release entirely.
 +		rts                                    ; The wavetable parks on a $00 hold, so pulse, notes,
 +		                                       ; vibrato and slide run on through the release.
-+
-+; Required Lua-generated tables (Startup\Tables.s): note_freq_low/high, tbl_rows_pat*,
-+; tbl_rows_lo/hi, tbl_songorder, ad_table, sr_table, wt_start/wt_data, arp_start/arp_data,
-+; flt_start/flt_data, pw_init, pw_add, plus vib_ds/vib_depth and slide_rate when used.
+ 
+ ; Required Lua-generated tables (Startup\Tables.s): note_freq_low/high, tbl_rows_pat*,
+ ; tbl_rows_lo/hi, tbl_songorder, ad_table, sr_table, wt_start/wt_data, arp_start/arp_data,
 --- Startup/Tables.s
 +++ Startup/Tables.s
 @@ -66,6 +66,18 @@

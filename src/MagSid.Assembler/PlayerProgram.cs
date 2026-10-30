@@ -79,11 +79,11 @@ public static class PlayerProgram
     private const int CmdSlide = 0xD3;
     private const int RowWait = 0xD1;
 
-    /// <summary>voice_note holds a note id or one of these, deliberately the same bytes the stream
-    /// uses so Voice_Tick can store the command straight from A.</summary>
+    /// <summary>A reaches Voice_PlayCurrent holding a note id or one of these, deliberately the same
+    /// bytes the stream uses, so Voice_Tick can hand the command over as it stands.</summary>
     private const int NoteOff = CmdOff;
 
-    // SID registers, written through the per-channel offset in Y.
+    // SID registers, written through X: a voice's index is its offset in the SID too.
     private const int SidFreqLo = 0xD400;
     private const int SidFreqHi = 0xD401;
     private const int SidPwLo = 0xD402;
