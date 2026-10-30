@@ -75,11 +75,16 @@ internal static class EditorTheme
                 new Setter(TemplatedControl.FontFamilyProperty, UiFont),
                 new Setter(TemplatedControl.FontSizeProperty, FontSize),
                 new Setter(TemplatedControl.ForegroundProperty, Body),
+                new Setter(TemplatedControl.BackgroundProperty, Background),
             },
         };
         if (AppIcon() is { } icon)
             window.Setters.Add(new Setter(Window.IconProperty, icon));
         app.Styles.Add(window);
+
+        // Windows draws the title bar itself, white unless asked - 1.64 asked for a dark one.
+        if (OperatingSystem.IsWindows())
+            Window.WindowOpenedEvent.AddClassHandler<Window>((opened, _) => DarkTitleBar(opened));
 
         // Buttons and toggles: flat, a thin border, the editor's button colours.
         foreach (var type in new[] { typeof(Button), typeof(ToggleButton) })
@@ -256,7 +261,22 @@ internal static class EditorTheme
         };
     });
 
-    /// <summary>MagSID.ico, embedded from the Windows editor's project; null if it is missing,
+    /// <summary>A dark caption, as DarkTheme.ApplyTitleBar gives 1.64's windows: attribute 20 from
+    /// Windows 10 20H1, 19 before it; one an older Windows does not know just fails.</summary>
+    private static void DarkTitleBar(Window window)
+    {
+        if (window.TryGetPlatformHandle()?.Handle is not { } handle)
+            return;
+
+        int enabled = 1;
+        if (DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int)) != 0)
+            DwmSetWindowAttribute(handle, 19, ref enabled, sizeof(int));
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /// <summary>MagSID.ico, embedded; null if it is missing,
     /// so a build without it still runs, on the system's default icon.</summary>
     private static WindowIcon? AppIcon()
     {
