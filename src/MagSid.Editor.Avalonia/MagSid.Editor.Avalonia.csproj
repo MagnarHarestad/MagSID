@@ -9,7 +9,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>MagSID</AssemblyName>
     <RootNamespace>MagSid.Editor.Avalonia</RootNamespace>
-    <Version>1.71</Version>
+    <Version>1.72</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- 1.64's icon, its frames kept as PNG - Avalonia misreads the old bitmap frames, and
          drew the black square see-through: on the .exe for Explorer and the taskbar, and

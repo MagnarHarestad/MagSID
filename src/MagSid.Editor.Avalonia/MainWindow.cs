@@ -375,7 +375,7 @@ public sealed partial class MainWindow : Window
     /// <summary>A notice is read once and then gets out of the way.</summary>
     private readonly DispatcherTimer _noticeTimer = new() { Interval = TimeSpan.FromSeconds(5) };
 
-    /// <summary>"v1.71", from the project's version - the same number About shows.</summary>
+    /// <summary>"v1.72", from the project's version - the same number About shows.</summary>
     private static string EditorVersion
     {
         get
