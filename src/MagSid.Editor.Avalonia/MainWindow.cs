@@ -74,6 +74,13 @@ public sealed partial class MainWindow : Window
     private Control _retroView = null!;
     private MenuItem _viewToggle = null!;
     private bool _dawShowing;
+    private readonly SignalPathView _signalPath = new();
+    private readonly DigiToSidOscView _digi;
+    private Control _signalPathHost = null!;
+    private Control _digiHost = null!;
+
+    /// <summary>Signal Path or Digi to SID-osc when one is in the centre, over the song's view.</summary>
+    private Control? _toolShowing;
     private MenuItem _midiMenu = null!;
     private MidiInput? _midi;
     private MidiKnobBindings? _midiBindings;
@@ -101,6 +108,7 @@ public sealed partial class MainWindow : Window
         Background = WindowBackground;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
+        _digi = new DigiToSidOscView(_session);
         Content = BuildLayout();
         _autosave = new AutosaveManager(_session);
         WireEvents();
@@ -116,6 +124,8 @@ public sealed partial class MainWindow : Window
         {
             StopPlayback();
             StopPatternPreview();
+            _signalPath.StopAudition();
+            _digi.StopAudition();
             _jam?.Dispose();
             _midi?.Dispose();
             _autosave.Dispose();
@@ -391,7 +401,11 @@ public sealed partial class MainWindow : Window
         // selection and scroll survive a round trip.
         _daw.IsVisible = false;
         _daw.ChipModel = _chipModel;
-        var centre = new Panel { Children = { retro, _daw } };
+        // Signal Path and Digi to SID-osc take the same place when opened, the song's view
+        // waiting underneath.
+        _signalPathHost = ToolHost("Signal Path", _signalPath);
+        _digiHost = ToolHost("Digi to SID-osc", _digi);
+        var centre = new Panel { Children = { retro, _daw, _signalPathHost, _digiHost } };
 
         // The file on the left, a passing notice and whether it is saved on the right - 1.64's
         // status strip.
@@ -445,6 +459,78 @@ public sealed partial class MainWindow : Window
             var version = typeof(MainWindow).Assembly.GetName().Version;
             return $"v{version?.Major}.{version?.Minor}";
         }
+    }
+
+    /// <summary>A tool in the centre: its name and a Close on a strip above it.</summary>
+    private Control ToolHost(string name, Control tool)
+    {
+        var close = StripButton("Close", CloseTool);
+        ToolTip.SetTip(close, "Back to the song (Esc)");
+        var header = new DockPanel();
+        DockPanel.SetDock(close, Dock.Right);
+        header.Children.Add(close);
+        header.Children.Add(new TextBlock
+        {
+            Text = name,
+            Foreground = EditorTheme.Title,
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var strip = new Border
+        {
+            Background = EditorTheme.Field,
+            BorderBrush = EditorTheme.Border,
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(8, 1, 2, 1),
+            Child = header,
+        };
+        var host = new DockPanel { IsVisible = false };
+        DockPanel.SetDock(strip, Dock.Top);
+        host.Children.Add(strip);
+        host.Children.Add(tool);
+        return host;
+    }
+
+    /// <summary>Opens <paramref name="host"/>'s tool in the centre, or closes it when it is
+    /// already there.</summary>
+    private void ToggleTool(Control host)
+    {
+        if (_toolShowing == host)
+        {
+            CloseTool();
+            return;
+        }
+
+        CloseTool();
+        _dawHeldKeys.Clear();
+        _toolShowing = host;
+        _retroView.IsVisible = false;
+        _daw.IsVisible = false;
+        host.IsVisible = true;
+        if (host == _signalPathHost)
+            _signalPath.ShowFor(_session.Song.Instruments, _dawShowing ? _daw.SelectedInstrumentNumber : SelectedInstrument?.Number);
+        host.Focus();
+    }
+
+    /// <summary>Puts the song's view back, silencing whatever the tool was playing.</summary>
+    private void CloseTool()
+    {
+        if (_toolShowing is null)
+            return;
+
+        _toolShowing.IsVisible = false;
+        _toolShowing = null;
+        _signalPath.StopAudition();
+        _digi.StopAudition();
+
+        _retroView.IsVisible = !_dawShowing;
+        _daw.IsVisible = _dawShowing;
+        // Its controls did not repaint while it was hidden.
+        System.Windows.Forms.Control.RepaintAll(_dawShowing ? _daw : _retroView);
+        if (_dawShowing)
+            _daw.Focus();
+        else
+            _grid.Focus();
     }
 
     /// <summary>A flat toolbar button, as a ToolStripButton: no frame until the pointer is on it.</summary>
@@ -608,8 +694,8 @@ public sealed partial class MainWindow : Window
             ItemsSource = new[]
             {
                 file,
-                Item("_Signal Path", () => new SignalPathWindow(_session.Song.Instruments).Show(this)),
-                Item("_Digi to SID-osc", () => new DigiToSidOscWindow(_session).Show(this)),
+                Item("_Signal Path", () => ToggleTool(_signalPathHost)),
+                Item("_Digi to SID-osc", () => ToggleTool(_digiHost)),
                 Item("_Optimize", () => _ = OptimizeAsync()),
                 _midiMenu,
                 _viewToggle,
@@ -622,6 +708,12 @@ public sealed partial class MainWindow : Window
     private void WireEvents()
     {
         _session.StructureChanged += RefreshAll;
+        // Another song, or instruments added: Signal Path lists what is there now.
+        _session.StructureChanged += () =>
+        {
+            if (_toolShowing == _signalPathHost)
+                _signalPath.ShowFor(_session.Song.Instruments, null);
+        };
         WireInstrumentList();
         WireRasterTime();
         _grid.UnrollLoops = !EditorSettings.CompactLoops;
@@ -699,6 +791,8 @@ public sealed partial class MainWindow : Window
     /// is nothing to convert; the selected instrument is carried across.</summary>
     private void ToggleView()
     {
+        // From a tool, the view the menu names: the tool goes, then the views swap as ever.
+        CloseTool();
         _dawShowing = !_dawShowing;
         _dawHeldKeys.Clear();
 
@@ -728,6 +822,17 @@ public sealed partial class MainWindow : Window
 
     private void OnTransportKey(object? sender, KeyEventArgs e)
     {
+        // A tool's keys are its own; Esc closes it, unless it is closing a drop-down.
+        if (_toolShowing is not null)
+        {
+            if (e.Key == Key.Escape && FocusManager?.GetFocusedElement() is not ComboBox { IsDropDownOpen: true })
+            {
+                CloseTool();
+                e.Handled = true;
+            }
+            return;
+        }
+
         // Typing in a field keeps its keys.
         if (FocusManager?.GetFocusedElement() is TextBox)
             return;

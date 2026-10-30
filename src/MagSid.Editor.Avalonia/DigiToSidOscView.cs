@@ -15,12 +15,12 @@ using AvColor = Avalonia.Media.Color;
 namespace MagSid.Editor.Avalonia;
 
 /// <summary>
-/// The Digi to SID-osc window, as the Windows editor's: load a .wav, adjust the settings,
-/// Audition, then Add to Song. The analysis and the encoding are the shared
+/// The Digi to SID-osc view, in the main window in place of the song: load a .wav, adjust the
+/// settings, Audition, then Add to Song. The analysis and the encoding are the shared
 /// <see cref="DigiEncoder"/>'s and the graph the shared <see cref="DigiCanvas"/>'s; this is the
 /// audition loop around them, with PortAudio for the sound.
 /// </summary>
-internal sealed class DigiToSidOscWindow : Window
+internal sealed class DigiToSidOscView : DockPanel
 {
     private static readonly IBrush Dim = new SolidColorBrush(AvColor.FromRgb(0x8A, 0x8A, 0xA8));
 
@@ -70,17 +70,9 @@ internal sealed class DigiToSidOscWindow : Window
     private EncodeResult? _cachedResult;
     private (AnalysisResult Analysis, byte CutoffMin, byte CutoffMax, int SegmentMs, int ForcedIndex)? _cachedKey;
 
-    public DigiToSidOscWindow(EditorSession session)
+    public DigiToSidOscView(EditorSession session)
     {
         _session = session;
-
-        Title = "Digi to SID-osc";
-        Width = 1280;
-        Height = 640;
-        MinWidth = 1000;
-        MinHeight = 520;
-        Background = new SolidColorBrush(AvColor.FromRgb(0x10, 0x10, 0x20));
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
         _loadButton.Click += async (_, _) => await LoadWavAsync();
         _reanalyzeButton.Click += async (_, _) =>
@@ -93,7 +85,6 @@ internal sealed class DigiToSidOscWindow : Window
         _addToSongButton.Click += async (_, _) => await AddToSongAsync();
         _canvas.WheelZoom += OnWheelZoom;
         _playheadTimer.Tick += (_, _) => UpdatePlayhead();
-        Closed += (_, _) => StopAudition();
 
         _scroll.Content = _canvas;
         _scroll.PropertyChanged += (_, e) =>
@@ -128,17 +119,18 @@ internal sealed class DigiToSidOscWindow : Window
         };
         var summaryRow = new StackPanel { Spacing = 4, Margin = new Thickness(8, 6), Children = { _summary, _searchProgress } };
 
-        var root = new DockPanel();
         foreach (var top in new Control[] { row1, row2, summaryRow })
         {
-            DockPanel.SetDock(top, Dock.Top);
-            root.Children.Add(top);
+            SetDock(top, Dock.Top);
+            Children.Add(top);
         }
-        root.Children.Add(_scroll);
-        Content = root;
+        Children.Add(_scroll);
 
         UpdateSummary();
     }
+
+    /// <summary>The main window, for the file picker and the message boxes.</summary>
+    private Window Owner => (Window)TopLevel.GetTopLevel(this)!;
 
     private static NumericUpDown Number(int min, int max, int value) =>
         new() { Minimum = min, Maximum = max, Value = value, Width = 110, FormatString = "0" };
@@ -155,11 +147,12 @@ internal sealed class DigiToSidOscWindow : Window
 
     private async Task LoadWavAsync()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var storage = Owner.StorageProvider;
+        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Load .wav",
             FileTypeFilter = [WavFiles],
-            SuggestedStartLocation = await StorageProvider.StartIn(DialogFolder.DigiWav),
+            SuggestedStartLocation = await storage.StartIn(DialogFolder.DigiWav),
         });
         if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
             return;
@@ -172,7 +165,7 @@ internal sealed class DigiToSidOscWindow : Window
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or EndOfStreamException)
         {
-            await MessageWindow.ShowAsync(this, "Cannot read the .wav", ex.Message);
+            await MessageWindow.ShowAsync(Owner, "Cannot read the .wav", ex.Message);
             return;
         }
 
@@ -195,7 +188,7 @@ internal sealed class DigiToSidOscWindow : Window
 
     /// <summary>Reads the settings here, on the UI thread, then - unless the last search already
     /// answers this exact question - runs DigiEncoder.BuildInstruments on a background thread,
-    /// so the window stays alive through a longer search.</summary>
+    /// so the editor stays alive through a longer search.</summary>
     private async Task<EncodeResult> BuildInstrumentsAsync()
     {
         var a = _analysis ?? throw new InvalidOperationException("No analysis to encode.");
@@ -281,7 +274,7 @@ internal sealed class DigiToSidOscWindow : Window
         catch (Exception ex) when (ex is InvalidOperationException or PortAudioSharp.PortAudioException or ArgumentException)
         {
             StopAudition();
-            await MessageWindow.ShowAsync(this, "Cannot play", ex.Message);
+            await MessageWindow.ShowAsync(Owner, "Cannot play", ex.Message);
             return;
         }
 
@@ -311,7 +304,7 @@ internal sealed class DigiToSidOscWindow : Window
         _canvas.RenderedAudio = DigiEncoder.RenderClip(result, _analysis.FrameCount);
     }
 
-    private void StopAudition()
+    public void StopAudition()
     {
         _searchCts?.Cancel(); // Stop also cancels an in-flight search, not just playback
 
@@ -370,7 +363,7 @@ internal sealed class DigiToSidOscWindow : Window
 
         var added = DigiEncoder.AddToSong(_session.Song, result, _analysis.FrameCount);
         _session.NotifyStructureChanged();
-        await MessageWindow.ShowAsync(this, "Digi to SID-osc", added.Message);
+        await MessageWindow.ShowAsync(Owner, "Digi to SID-osc", added.Message);
     }
 
     // ---------------------------------------------------------------- zoom

@@ -12,16 +12,16 @@ using AvColor = Avalonia.Media.Color;
 namespace MagSid.Editor.Avalonia;
 
 /// <summary>
-/// The Signal Path window, as the Windows editor's: pick an instrument, a note and how many
-/// frames, and Trace takes a <see cref="SignalPathTrace"/> of it - register writes, gate,
+/// The Signal Path view, in the main window in place of the song: pick an instrument, a note and
+/// how many frames, and Trace takes a <see cref="SignalPathTrace"/> of it - register writes, gate,
 /// envelope, filter, oscillator and output, frame by frame, out of the real sequencer and SID -
 /// draws it on the shared <see cref="SignalPathCanvas"/> and plays it while a marker follows.
 /// </summary>
-internal sealed class SignalPathWindow : Window
+internal sealed class SignalPathView : DockPanel
 {
     private static readonly IBrush Dim = new SolidColorBrush(AvColor.FromRgb(0x8A, 0x8A, 0xA8));
 
-    private readonly IReadOnlyList<Instrument> _instruments;
+    private List<Instrument> _instruments = [];
     private readonly ComboBox _instrumentPicker = new() { Width = 220 };
     private readonly ComboBox _notePicker = new() { Width = 90 };
     private readonly NumericUpDown _frameCount = new() { Minimum = 4, Maximum = 200, Value = 24, Width = 110, FormatString = "0" };
@@ -40,22 +40,8 @@ internal sealed class SignalPathWindow : Window
     private readonly DispatcherTimer _auditionStop = new();
     private readonly DispatcherTimer _playhead = new() { Interval = TimeSpan.FromMilliseconds(15) };
 
-    public SignalPathWindow(IReadOnlyList<Instrument> instruments)
+    public SignalPathView()
     {
-        _instruments = instruments;
-
-        Title = "Signal Path";
-        // Wide enough for the default 24-frame trace and tall enough for all its rows.
-        Width = 1160;
-        Height = 880;
-        MinWidth = 900;
-        MinHeight = 560;
-        Background = new SolidColorBrush(AvColor.FromRgb(0x10, 0x10, 0x20));
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
-
-        _instrumentPicker.ItemsSource = _instruments.Select(SignalPathTrace.Label).ToList();
-        if (_instruments.Count > 0)
-            _instrumentPicker.SelectedIndex = 0;
         var notes = NoteName.AllNotes.Select(n => n.ToString()).ToList();
         _notePicker.ItemsSource = notes;
         _notePicker.SelectedIndex = Math.Max(0, notes.IndexOf("C-3"));
@@ -64,7 +50,6 @@ internal sealed class SignalPathWindow : Window
         trace.Click += (_, _) => RunTrace(play: true);
         _auditionStop.Tick += (_, _) => StopAudition();
         _playhead.Tick += (_, _) => UpdatePlayhead();
-        Closed += (_, _) => StopAudition();
 
         var toolbar = new StackPanel
         {
@@ -81,18 +66,31 @@ internal sealed class SignalPathWindow : Window
         };
 
         _scroll.Content = _canvas;
-        var root = new DockPanel();
-        DockPanel.SetDock(toolbar, Dock.Top);
-        DockPanel.SetDock(_summary, Dock.Top);
-        root.Children.Add(toolbar);
-        root.Children.Add(_summary);
-        root.Children.Add(_scroll);
-        Content = root;
+        SetDock(toolbar, Dock.Top);
+        SetDock(_summary, Dock.Top);
+        Children.Add(toolbar);
+        Children.Add(_summary);
+        Children.Add(_scroll);
+    }
 
-        // A trace so the window opens with something in it - silently: sound on open startles,
-        // and nobody asked for it by getting here.
+    /// <summary>Lists the song's instruments, picks <paramref name="number"/> when it is one of
+    /// them, and traces it - silently: sound on open startles, and nobody asked for it by
+    /// getting here.</summary>
+    public void ShowFor(IReadOnlyList<Instrument> instruments, int? number)
+    {
+        StopAudition();
+        var was = _instrumentPicker.SelectedIndex >= 0 && _instrumentPicker.SelectedIndex < _instruments.Count
+            ? _instruments[_instrumentPicker.SelectedIndex].Number
+            : (int?)null;
+        _instruments = instruments.ToList();
+        _instrumentPicker.ItemsSource = _instruments.Select(SignalPathTrace.Label).ToList();
+
+        int index = _instruments.FindIndex(i => i.Number == (number ?? was));
+        _instrumentPicker.SelectedIndex = index >= 0 ? index : _instruments.Count > 0 ? 0 : -1;
         if (_instruments.Count > 0)
             RunTrace(play: false);
+        else
+            _summary.Text = "The song has no instruments to trace.";
     }
 
     private static Control Labelled(string caption, Control field) => new StackPanel
@@ -142,7 +140,7 @@ internal sealed class SignalPathWindow : Window
         }
     }
 
-    private void StopAudition()
+    public void StopAudition()
     {
         _auditionStop.Stop();
         _playhead.Stop();
@@ -155,7 +153,7 @@ internal sealed class SignalPathWindow : Window
     }
 
     /// <summary>Moves the marker to the frame being heard - the device's play position, not what
-    /// has been handed to it - and keeps it in view once the trace is wider than the window.</summary>
+    /// has been handed to it - and keeps it in view once the trace is wider than the view.</summary>
     private void UpdatePlayhead()
     {
         if (_audition is null || _canvas.Trace is not { } trace)
