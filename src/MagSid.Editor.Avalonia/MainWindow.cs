@@ -63,6 +63,10 @@ public sealed partial class MainWindow : Window
     private IAudioOutput? _previewOutput;
     private SongPlaybackEngine? _previewEngine;
     private JamEngine? _jam;
+
+    /// <summary>A jam engine is being opened in the background - see PrepareJam.</summary>
+    private bool _jamOpening;
+    private bool _closed;
     private SongSequencer.SequencerPosition? _resumeFrom;
     private (int Position, int Row)? _resumeCursor;
     private bool _refreshing;
@@ -117,6 +121,7 @@ public sealed partial class MainWindow : Window
         Closing += OnClosing;
         Closed += (_, _) =>
         {
+            _closed = true;
             StopPlayback();
             StopPatternPreview();
             _signalPath.StopAudition();
@@ -137,6 +142,7 @@ public sealed partial class MainWindow : Window
                 StartFrameProbe(log);
                 return;
             }
+            PrepareJam();
             Dispatcher.UIThread.Post(() => _ = AskAboutUpdatesAsync(), DispatcherPriority.Background);
         };
 
@@ -233,6 +239,7 @@ public sealed partial class MainWindow : Window
             _daw.ChipModel = _chipModel;
             _jam?.Dispose();
             _jam = null;
+            PrepareJam();
             UpdateChipButton();
             if (_output is not null)
             {
@@ -1142,6 +1149,50 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Opens the note preview's sound in the background, so the first note does not wait for it:
+    /// on Windows, starting PortAudio and opening a stream take most of a second, and a note
+    /// waited that long on the UI thread - before it was heard, and before it was written into
+    /// the pattern. Asked for at start-up, after the chip changes, and when playback stops, as
+    /// playback closes it. Looked at once the UI is idle, so a play that is just starting does
+    /// not get a second stream opened beside it.
+    /// </summary>
+    private void PrepareJam()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || _jam is not null || _jamOpening || _output is not null || _previewOutput is not null)
+                return;
+
+            _jamOpening = true;
+            var chip = _chipModel;
+            Task.Run(() =>
+            {
+                try
+                {
+                    var jam = new JamEngine(chip);
+                    jam.Start();
+                    return jam;
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or PortAudioSharp.PortAudioException)
+                {
+                    return null;
+                }
+            }).ContinueWith(opened => Dispatcher.UIThread.Post(() =>
+            {
+                _jamOpening = false;
+                if (!opened.IsCompletedSuccessfully || opened.Result is not { } jam)
+                    return;
+
+                // A note played meanwhile opened one of its own, or something else began.
+                if (_closed || _jam is not null || _output is not null || _previewOutput is not null || chip != _chipModel)
+                    jam.Dispose();
+                else
+                    _jam = jam;
+            }));
+        }, DispatcherPriority.Background);
+    }
+
     private void ReleaseJamNote(NoteName note)
     {
         _jam?.NoteOff(note);
@@ -1377,6 +1428,7 @@ public sealed partial class MainWindow : Window
         _previewEngine = null;
         output?.Stop();
         output?.Dispose();
+        PrepareJam();
     }
 
     private void StartPlaybackFrom(SongSequencer.SequencerPosition? resume)
@@ -1450,6 +1502,7 @@ public sealed partial class MainWindow : Window
         _grid.SetPlaybackActive(false);
         _daw.ClearPlayback();
         _play.Content = "▶ Play";
+        PrepareJam();
     }
 
     private void RequestPlaybackFrames()
