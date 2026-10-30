@@ -656,11 +656,17 @@ public class Control : AvControl, IWin32Window, IDisposable
         if (base.Bounds.Width <= 0 || base.Bounds.Height <= 0)
             return;
 
+        long started = RenderTimed is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
         using var graphics = new Graphics(context, Width, Height);
         var args = new PaintEventArgs(graphics, ClientRectangle);
         OnPaintBackground(args);
         OnPaint(args);
+        RenderTimed?.Invoke(this, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
+
+    /// <summary>Told each control painted and how long it took, in milliseconds - set by the
+    /// editor's frame probe only.</summary>
+    public static Action<object, double>? RenderTimed;
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {

@@ -18,6 +18,8 @@ internal static class Program
     public static void Main(string[] args)
     {
         AudioOutput.Open = PortAudioOutput.Open;
+        if (MainWindow.FrameProbeLog is not null)
+            AudioOutput.Open = (source, _) => new FrameProbeOutput(source);
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

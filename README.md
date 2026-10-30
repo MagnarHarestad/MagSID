@@ -134,6 +134,16 @@ A tag `v1.7` makes `.github/workflows/release.yml` build the packages for every 
 for Apple Silicon and Intel, Windows and Linux, each with .NET inside - and open a draft release with
 them. `packaging/portable/package.sh` and `packaging/macos/package.sh` do the same by hand.
 
+**Measuring how smoothly it draws.** Set `MAGSID_FRAMEPROBE` to a log file and open a song, and the
+editor plays it silently, measures 1500 displayed frames and closes. The log has the frame gaps, each
+view's paint times, the garbage collections and the largest allocations. `MAGSID_FRAMEPROBE_DAW=1`
+measures the DAW view instead of the Retro view. Check both after any change to how either draws.
+
+```
+MAGSID_FRAMEPROBE=retro.txt MagSID "SongData/MysData2026 - Clarity.s"
+MAGSID_FRAMEPROBE=daw.txt MAGSID_FRAMEPROBE_DAW=1 MagSID "SongData/MysData2026 - Clarity.s"
+```
+
 ## Optional
 
 **The player sources**, if you want to assemble the C64 side or regenerate a golden. The c6510 source

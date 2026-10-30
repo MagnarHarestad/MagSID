@@ -127,6 +127,11 @@ public sealed partial class MainWindow : Window
             if (songPath is not null)
                 Open(songPath);
             _grid.Focus();
+            if (FrameProbeLog is { } log)
+            {
+                StartFrameProbe(log);
+                return;
+            }
             Dispatcher.UIThread.Post(() => _ = AskAboutUpdatesAsync(), DispatcherPriority.Background);
         };
 
