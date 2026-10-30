@@ -699,6 +699,106 @@ public sealed class TrackerGridControl : Control
         };
         _cursorRow = Math.Max(0, row);
         Invalidate();
+
+        if (e.Button == MouseButtons.Right && _cursorField == CursorField.Marker)
+        {
+            ShowMarkerMenu(e.Location);
+        }
+    }
+
+    /// <summary>Right-click on a channel's pattern column: the loop markers on the row clicked
+    /// and where the channel's song-order restarts. Each is ticked when it is already there, so
+    /// the menu also says what the row has; choosing a ticked one takes it off.</summary>
+    private void ShowMarkerMenu(Point at)
+    {
+        if (_song is null)
+        {
+            return;
+        }
+
+        var target = ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false);
+        bool hasStart = target is { } t && t.LocalRow > 0 && t.Pattern.Rows[t.LocalRow - 1] is LoopStartRow;
+        var loopEnd = target is { } e && e.LocalRow + 1 < e.Pattern.Rows.Count
+            ? e.Pattern.Rows[e.LocalRow + 1] as LoopEndRow
+            : null;
+        var shown = ResolveDisplayRow(_cursorChannel, _cursorRow);
+        var order = _song.ChannelOrders[_cursorChannel];
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem("Loop start (LS)", null, (_, _) => ToggleLoopStartAtCursor())
+        {
+            Checked = hasStart,
+            Enabled = target is not null,
+            ShortcutKeyDisplayString = "Ctrl+L",
+        });
+        menu.Items.Add(new ToolStripMenuItem("Loop end (LE)", null, (_, _) => ToggleLoopEndAtCursor())
+        {
+            Checked = loopEnd is not null,
+            Enabled = target is not null,
+            ShortcutKeyDisplayString = "Ctrl+E",
+        });
+
+        // How many times the loop plays in all, the first time included - LE04 is four.
+        var plays = new ToolStripMenuItem("Loop plays") { Enabled = loopEnd is not null };
+        var counts = new List<int?> { null, 2, 3, 4, 8, 16 };
+        if (loopEnd?.RepeatCount is { } current && !counts.Contains(current))
+        {
+            counts.Add(current);
+        }
+        foreach (int? count in counts.OrderBy(c => c ?? 0))
+        {
+            plays.DropDownItems.Add(new ToolStripMenuItem(count is { } c ? $"{c} times" : "Forever", null,
+                (_, _) => SetLoopPlaysAtCursor(count)) { Checked = loopEnd is not null && loopEnd.RepeatCount == count });
+        }
+        menu.Items.Add(plays);
+
+        menu.Items.Add(new ToolStripSeparator());
+        string channel = $"CH{_cursorChannel + 1}";
+        menu.Items.Add(new ToolStripMenuItem(
+            shown is { } here ? $"Restart {channel} here (RST{here.OrderIndex + 1:D2})" : $"Restart {channel} here", null,
+            (_, _) => SetRestartAtCursor())
+        {
+            Checked = shown is { } r && order.RestartPosition == r.OrderIndex + 1,
+            Enabled = shown is not null,
+        });
+
+        DarkTheme.Apply(menu);
+        menu.Show(this, at);
+    }
+
+    /// <summary>Sets how many times the loop ending on the cursor's row plays: null is forever.</summary>
+    private void SetLoopPlaysAtCursor(int? count)
+    {
+        if (RefuseOnLinkedPass())
+            return;
+
+        if (ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false) is not { } target)
+        {
+            return;
+        }
+        var (pattern, localRow) = target;
+        if (localRow + 1 >= pattern.Rows.Count || pattern.Rows[localRow + 1] is not LoopEndRow)
+        {
+            return;
+        }
+
+        pattern.Rows[localRow + 1] = new LoopEndRow(count);
+        Edited?.Invoke();
+        Invalidate();
+    }
+
+    /// <summary>When the cursor channel's song-order runs out, it starts again from the entry the
+    /// cursor's row is in.</summary>
+    private void SetRestartAtCursor()
+    {
+        if (ResolveDisplayRow(_cursorChannel, _cursorRow) is not { } here)
+        {
+            return;
+        }
+
+        _song!.ChannelOrders[_cursorChannel].RestartPosition = here.OrderIndex + 1;
+        Edited?.Invoke();
+        Invalidate();
     }
 
     /// <summary>Only the "CH1"/"CH2"/"CH3" label itself toggles mute - the Marker/NOT/INS header
