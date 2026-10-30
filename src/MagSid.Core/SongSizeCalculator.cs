@@ -39,10 +39,12 @@ public static class SongSizeCalculator
     // frequency-modulation block, which is why both-at-once is less than the two deltas summed.
     // 2026-10-23: 4 bytes less throughout, 8 with vibrato - the row tables indexed by Y, the arp
     // start stored with STY, ALR for and+lsr and a redundant ldy when the vibrato turns round.
+    // 2026-10-30: slide and vibrato 30, 32 and 40 bytes less - Voice_SetFreq joined to the
+    // frequency write, and the tests for a rate or a depth of 0 gone.
     private static readonly int PlayerBare = 458 + HardRestartBytes;
-    private static readonly int PlayerVibrato = 566 + HardRestartBytes;
-    private static readonly int PlayerSlide = 529 + HardRestartBytes;
-    private static readonly int PlayerVibratoAndSlide = 600 + HardRestartBytes;
+    private static readonly int PlayerVibrato = 534 + HardRestartBytes;
+    private static readonly int PlayerSlide = 499 + HardRestartBytes;
+    private static readonly int PlayerVibratoAndSlide = 560 + HardRestartBytes;
 
     /// <summary>Keeping the waveform through the hard restart loads and masks it rather than
     /// loading $08 - two bytes. The four figures above are the $08 player's.</summary>

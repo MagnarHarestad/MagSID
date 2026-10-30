@@ -65,13 +65,28 @@ bytes more - and `Song_Shuffle` is one zero-page byte after `filter_delta`, clea
 this folder are BellaCiao and slide_only.s with a funk speed added. Same procedure; all eleven images
 without funk speed, and the eleven in `GateOff\`, came out byte for byte as before.
 
+All the images with slide or vibrato, seven here and seven in `GateOff\`, were reassembled on
+**2026-10-30**, when those effects shrank by 30 bytes with slides, 32 with vibrato and 40 with both.
+`Voice_SetFreq` joined the frequency write, so it writes the note plus its offset, and moved into
+`Voice_Automation`; a note program's step now only keeps the note, with carry set to go on through the
+offset, instead of writing it and overwriting it in the same frame. The note program's two exits became
+one, with `.byte $2c` (`bit abs`) stepping over the `inc`. Slide's offset is added by `bpl`/`dec` and
+`bcc`/`inc`, vibrato's delay is `dec`/`bpl`/`inc`, and the tests for a rate or a depth of 0 went - they add
+nothing, so they only saved cycles. The trigger clears the offset before the `jsr` and reads `vib_ds` once,
+and `$D3` falls into `.playrow`. Same procedure, with the old 26 images first rebuilt byte for byte; the 12
+images without either effect came out byte for byte as before. Old and new were then run for 30000 frames
+each, for every song in `SongData` and the fixtures, and the SID registers held the same values after every
+frame. The writes differ on purpose: the note a step used to write first is gone, and the frequency goes low
+byte first, the two within a few cycles of each other as they always were.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
-the release and funk speed - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
+the release, funk speed and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 
 `opcodes.txt` is the emitter's opcode table, one `mnemonic mode hex` line each, frozen after
 `OpcodeTableTests` had checked all 106 of them against c6510 instruction by instruction. `asr Immediate
-4B` (ALR) joined it on 2026-10-23, after c6510 assembled `asr #$12` as `4B 12`.
+4B` (ALR) joined it on 2026-10-23, after c6510 assembled `asr #$12` as `4B 12`. `sec Implied 38` and
+`bit Absolute 2C` joined it on 2026-10-30, after c6510 assembled `sec` and `bit $1234` as `38` and `2C 34 12`.
 
 ## When one of these has to change
 

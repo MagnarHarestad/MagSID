@@ -114,7 +114,9 @@ public static class PlayerProgram
 
         EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff, sidChannelOffset);
         EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder, voiceOrderPos);
-        EmitVoiceSetFreq(asm, tables, features, zp, voiceSetFreq, sidChannelOffset);
+        // With slide or vibrato it is part of Voice_Automation, joined to the frequency write.
+        if (!features.FreqMod)
+            EmitVoiceSetFreq(asm, tables, voiceSetFreq, sidChannelOffset);
         EmitVoicePlayCurrent(asm, tables, features, zp, voicePlayCurrent, voiceNoteOff, voiceSetFreq, sidChannelOffset);
         EmitVoiceAutomation(asm, tables, features, zp, voiceAutomation, voiceSetFreq, sidChannelOffset);
         EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder);
@@ -172,9 +174,7 @@ public static class PlayerProgram
 
     /// <summary>A = note dictionary id, X = channel. Writes the frequency and returns with Y
     /// holding that channel's SID offset, which both callers go on to use.</summary>
-    private static void EmitVoiceSetFreq(
-        Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label sidChannelOffset)
+    private static void EmitVoiceSetFreq(Emitter6502 asm, SongTableLabels tables, Label entry, Label sidChannelOffset)
     {
         asm.Define(entry);
         asm.Tay();                                  // Y = note id
@@ -183,19 +183,8 @@ public static class PlayerProgram
         asm.Lda(MemY(tables.NoteFreqHigh));         // switch from note id to SID channel offset
         asm.Ldy(MemX(sidChannelOffset));
         asm.Sta(MemY(SidFreqHi));
-
-        // The SID's frequency registers cannot be read back, and vibrato/slide write base + offset
-        // over whatever a note or arpeggio step just wrote - so the base is kept here, the one
-        // place every frequency write passes through.
-        if (features.FreqMod)
-            asm.Sta(MemX(zp.VoiceFreqHi));
-
         asm.Pla();
         asm.Sta(MemY(SidFreqLo));
-
-        if (features.FreqMod)
-            asm.Sta(MemX(zp.VoiceFreqLo));
-
         asm.Rts();
     }
 
@@ -223,6 +212,21 @@ public static class PlayerProgram
         asm.Lda(MemX(zp.VoicePrevPw));
         asm.And(Imm(0x20));
         asm.Pha();
+
+        // Before the jsr: with slide or vibrato it writes the note plus its offset, and a new note
+        // starts from the bare note. Carry is clear from the bcs above, which is what tells
+        // Voice_SetFreq to write and not to step the offset.
+        if (features.FreqMod)
+        {
+            asm.Lda(Imm(0));
+            if (features.Vibrato)
+                asm.Sta(MemX(zp.VoiceVibDir));
+            asm.Sta(MemX(zp.VoiceOffLo));
+            asm.Sta(MemX(zp.VoiceOffHi));
+            if (features.Slide)
+                asm.Sta(MemX(zp.VoiceSlide));       // and a new note starts without a slide
+        }
+
         asm.Tya();
 
         asm.Jsr(voiceSetFreq);                      // leaves Y = this channel's SID offset
@@ -289,28 +293,14 @@ public static class PlayerProgram
             // speed long (low nibble >> 1), which centres the wave on the note.
             asm.Ldy(MemX(zp.VoiceInst));
             asm.Lda(MemY(tables.VibDs!));
+            asm.Tay();                              // Y is free from here on, and cheaper than a reload
             asm.Asr(Imm(0xF0));                     // ALR: and #$f0 + lsr, same flags
             asm.Lsr();
             asm.Sta(MemX(zp.VoiceVibDelay));
-            asm.Lda(MemY(tables.VibDs!));
+            asm.Tya();
             asm.Asr(Imm(0x0F));                     // ALR: and #$0f + lsr
             asm.Sta(MemX(zp.VoiceVibCnt));
-            asm.Lda(Imm(0));
-            asm.Sta(MemX(zp.VoiceVibDir));
         }
-        else if (features.Slide)
-        {
-            asm.Lda(Imm(0));
-        }
-
-        if (features.FreqMod)
-        {
-            asm.Sta(MemX(zp.VoiceOffLo));           // vibrato and slide both start from the bare note
-            asm.Sta(MemX(zp.VoiceOffHi));
-        }
-
-        if (features.Slide)
-            asm.Sta(MemX(zp.VoiceSlide));           // and a new note starts without a slide
 
         asm.Pla();
         asm.Tay();                                  // park pw_init while testing it
@@ -338,8 +328,7 @@ public static class PlayerProgram
         asm.Define(entry);
         var idle = asm.NewLabel(".idle");
         var freqMod = asm.NewLabel(".freqmod");
-        // Where the arpeggio paths go when there is no note program, and where the frequency-
-        // modulation block hangs off when there is one.
+        // Where the note program's "no program" branch goes.
         Label afterArp = features.FreqMod ? freqMod : idle;
 
         asm.Ldy(MemX(zp.VoiceWtPos));
@@ -401,100 +390,96 @@ public static class PlayerProgram
         asm.Bpl(arpNote);                           // $01..$7F = a note dictionary id
                                                     // else bit 7 set = exactly $80 = ROOT
         asm.Lda(MemX(zp.VoiceRoot));
-        EmitArpFreqWrite(asm, features, voiceSetFreq, freqMod);
+        var arpLoopBody = (Action)(() =>
+        {
+            asm.Define(arpLoop);
+            asm.Iny();
+            asm.Lda(MemY(tables.ArpData));
+            asm.Sta(MemX(zp.VoiceArpPos));
+            asm.Tay();
+            asm.Bne(arpStep);                       // a target of 0 would stop the arpeggio instead
+        });
 
-        asm.Define(arpNote);
-        asm.Inc(MemX(zp.VoiceArpPos));
-        EmitArpFreqWrite(asm, features, voiceSetFreq, freqMod);
-
-        asm.Define(arpLoop);
-        asm.Iny();
-        asm.Lda(MemY(tables.ArpData));
-        asm.Sta(MemX(zp.VoiceArpPos));
-        asm.Tay();
-        asm.Bne(arpStep);                           // a target of 0 would stop the arpeggio instead
-        asm.Define(idle);
-        asm.Rts();
-
-        if (features.FreqMod)
-            EmitFreqMod(asm, tables, features, zp, freqMod, idle, sidChannelOffset);
-    }
-
-    /// <summary>Without frequency modulation this is a tail call - Voice_SetFreq ends in the rts
-    /// the caller needs. With it, the offset still has to be applied afterwards.</summary>
-    private static void EmitArpFreqWrite(Emitter6502 asm, PlayerFeatures features, Label voiceSetFreq, Label freqMod)
-    {
         if (features.FreqMod)
         {
-            asm.Jsr(voiceSetFreq);
-            asm.Jmp(freqMod);
+            asm.Bytes(0x2C);                        // bit abs: steps over the inc, a byte under a branch
+            asm.Define(arpNote);
+            asm.Inc(MemX(zp.VoiceArpPos));
+            asm.Sec();                              // a step: on through the offset, unlike a new note
+            EmitFreqMod(asm, tables, features, zp, voiceSetFreq, freqMod, sidChannelOffset);
+            arpLoopBody();
+            asm.Rts();
         }
         else
         {
             asm.Jmp(voiceSetFreq);
+            asm.Define(arpNote);
+            asm.Inc(MemX(zp.VoiceArpPos));
+            asm.Jmp(voiceSetFreq);                  // tail call - it ends in the rts this needs
+            arpLoopBody();
+            asm.Define(idle);
+            asm.Rts();
         }
     }
 
-    /// <summary>Slide and vibrato, last in Voice_Automation because the arpeggio rewrites the bare
-    /// note every frame. Both move one signed 16-bit offset; slide adds the rate a pattern's slide
-    /// row left in voice_slide a frame, vibrato traces a triangle from vib_ds (delay/speed) and
-    /// vib_depth.</summary>
+    /// <summary>
+    /// A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be read
+    /// back for; then a note program (carry set) steps the offset, and a new note (carry clear) does
+    /// not. Returns with Y holding this channel's SID offset, which the trigger goes on to use.
+    ///
+    /// Then slide and vibrato, last in Voice_Automation because a note program sets a new bare note
+    /// every frame. Both move one signed 16-bit offset, which is added back on top of the note and
+    /// written every frame - that is what keeps a slide that "100" stopped where it got to. Slide
+    /// adds the rate a pattern's slide row left in voice_slide a frame, vibrato traces a triangle
+    /// from vib_ds (delay/speed) and vib_depth. A rate or a depth of 0 adds nothing, so neither is
+    /// tested for: that would only save cycles, and this player spends those for bytes.
+    /// </summary>
     private static void EmitFreqMod(
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label idle, Label sidChannelOffset)
+        Label voiceSetFreq, Label freqMod, Label sidChannelOffset)
     {
-        asm.Define(entry);
         var fmWrite = asm.NewLabel(".fmwrite");
-        var noSlide = asm.NewLabel(".noslide");
 
-        // Only vibrato reads the instrument's tables; the slide lives with the voice.
-        if (features.Vibrato)
-            asm.Ldy(MemX(zp.VoiceInst));
+        asm.Define(voiceSetFreq);
+        asm.Tay();
+        asm.Lda(MemY(tables.NoteFreqLow));
+        asm.Sta(MemX(zp.VoiceFreqLo));
+        asm.Lda(MemY(tables.NoteFreqHigh));
+        asm.Sta(MemX(zp.VoiceFreqHi));
+        asm.Bcc(fmWrite);
 
-        // With slides in the song the note plus its offset is written every frame, slide or no
-        // slide: a note program rewrites the bare note each frame, and only the offset added back
-        // on top keeps a slide that "100" stopped where it got to.
+        asm.Define(freqMod);
         if (features.Slide)
         {
+            // offset += rate, sign-extended.
+            var slideUp = asm.NewLabel(".slideup");
+            var slideDone = asm.NewLabel(".slidedone");
             asm.Lda(MemX(zp.VoiceSlide));
-            asm.Beq(features.Vibrato ? noSlide : fmWrite);
-
-            // offset += rate, sign-extended. None of pla/and/beq/lda touches the carry the adc
-            // produced, the same idiom the pulse-width sweep uses.
-            asm.Pha();
+            asm.Bpl(slideUp);
+            asm.Dec(MemX(zp.VoiceOffHi));
+            asm.Define(slideUp);
             asm.Clc();
             asm.Adc(MemX(zp.VoiceOffLo));
             asm.Sta(MemX(zp.VoiceOffLo));
-            asm.Pla();
-            asm.And(Imm(0x80));
-            var slideHigh = asm.NewLabel(".slidehigh");
-            asm.Beq(slideHigh);
-            asm.Lda(Imm(0xFF));
-            asm.Define(slideHigh);
-            asm.Adc(MemX(zp.VoiceOffHi));
-            asm.Sta(MemX(zp.VoiceOffHi));
+            asm.Bcc(slideDone);
+            asm.Inc(MemX(zp.VoiceOffHi));
+            asm.Define(slideDone);
         }
 
         if (features.Vibrato)
         {
-            asm.Define(noSlide);
-            asm.Lda(MemY(tables.VibDepth!));
-            asm.Beq(features.Slide ? fmWrite : idle);   // slide moved the offset: still write it
-            asm.Pha();
-            asm.Lda(MemX(zp.VoiceVibDelay));
-            var vibRun = asm.NewLabel(".vibrun");
-            asm.Beq(vibRun);
+            // Counts down to 0 and stays there: the inc puts back what going past 0 took off.
             asm.Dec(MemX(zp.VoiceVibDelay));
-            asm.Pla();
-            asm.Jmp(fmWrite);
+            asm.Bpl(fmWrite);
+            asm.Inc(MemX(zp.VoiceVibDelay));
 
-            asm.Define(vibRun);
-            // offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth,
-            // and the carry - set by the compare exactly when dir is $ff - supplies the +1 that
-            // turns ~depth into -depth; dir itself is the sign extension for the high byte.
+            // offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
+            // the carry - bit 7 of dir, out of the asl - supplies the +1 that turns ~depth into
+            // -depth; dir itself is the sign extension for the high byte.
+            asm.Ldy(MemX(zp.VoiceInst));
             asm.Lda(MemX(zp.VoiceVibDir));
-            asm.Cmp(Imm(1));
-            asm.Pla();
+            asm.Asl();
+            asm.Lda(MemY(tables.VibDepth!));
             asm.Eor(MemX(zp.VoiceVibDir));
             asm.Adc(MemX(zp.VoiceOffLo));
             asm.Sta(MemX(zp.VoiceOffLo));
@@ -506,22 +491,20 @@ public static class PlayerProgram
             asm.Lda(MemX(zp.VoiceVibDir));          // run finished: turn round and reload the speed
             asm.Eor(Imm(0xFF));
             asm.Sta(MemX(zp.VoiceVibDir));
-            asm.Lda(MemY(tables.VibDs!));          // Y is still voice_inst from .freqmod
+            asm.Lda(MemY(tables.VibDs!));
             asm.And(Imm(0x0F));
             asm.Sta(MemX(zp.VoiceVibCnt));
         }
 
         asm.Define(fmWrite);
+        asm.Ldy(MemX(sidChannelOffset));
         asm.Lda(MemX(zp.VoiceFreqLo));
         asm.Clc();
         asm.Adc(MemX(zp.VoiceOffLo));
-        asm.Pha();
+        asm.Sta(MemY(SidFreqLo));
         asm.Lda(MemX(zp.VoiceFreqHi));
         asm.Adc(MemX(zp.VoiceOffHi));
-        asm.Ldy(MemX(sidChannelOffset));
         asm.Sta(MemY(SidFreqHi));
-        asm.Pla();
-        asm.Sta(MemY(SidFreqLo));
         asm.Rts();
     }
 
@@ -746,18 +729,6 @@ public static class PlayerProgram
         asm.Tay();                                  // same reasoning - jump straight in with Y set
         asm.Jmp(nextCmd);
 
-        if (features.Slide)
-        {
-            // $D3, then the signed rate: a wait row that also sets the voice's slide, so it leaves
-            // as ROW_WAIT with Y on the rate byte - .playrow steps past it.
-            asm.Define(slide);
-            asm.Iny();
-            asm.Lda(IndY(zp.ZpLb));
-            asm.Sta(MemX(zp.VoiceSlide));
-            asm.Lda(Imm(RowWait));
-            asm.Bne(playRow);                       // always - ROW_WAIT is not zero
-        }
-
         // Masking rather than subtracting: the dispatch above already proved which range the byte
         // is in, so the low bits are the value and a single AND isolates them - one byte less than
         // sec/sbc, and it leaves no carry to think about.
@@ -773,6 +744,17 @@ public static class PlayerProgram
         asm.Define(advance);
         asm.Iny();
         asm.Bne(nextCmd);                           // always - a pattern never reaches offset 0 here
+
+        if (features.Slide)
+        {
+            // $D3, then the signed rate: a wait row that also sets the voice's slide, so it leaves
+            // as ROW_WAIT with Y on the rate byte - .playrow steps past it.
+            asm.Define(slide);
+            asm.Iny();
+            asm.Lda(IndY(zp.ZpLb));
+            asm.Sta(MemX(zp.VoiceSlide));
+            asm.Lda(Imm(RowWait));
+        }
 
         asm.Define(playRow);
         asm.Sta(MemX(zp.VoiceNote));

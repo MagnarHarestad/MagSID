@@ -129,6 +129,7 @@ public sealed class Emitter6502(int origin)
     public void Beq(Label target) => Emit("beq", Rel(target));
 
     public void Clc() => Emit("clc", None);
+    public void Sec() => Emit("sec", None);
     public void Dex() => Emit("dex", None);
     public void Inx() => Emit("inx", None);
     public void Iny() => Emit("iny", None);

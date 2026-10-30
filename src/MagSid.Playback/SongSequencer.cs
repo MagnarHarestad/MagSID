@@ -85,9 +85,9 @@ public sealed class SongSequencer
         _instrumentsByNumber = ByNumber(song.Instruments, i => i.Number);
         _firstInstrument = song.Instruments.MinBy(i => i.Number);
 
-        bool slides = MagSid.Core.SongSizeCalculator.UsesSlide(song);
+        bool freqMod = MagSid.Core.SongSizeCalculator.UsesSlide(song) || song.Instruments.Any(i => i.HasVibrato);
         foreach (var channel in _channels)
-            channel.Voice.SongHasSlides = slides;
+            channel.Voice.SongHasFreqMod = freqMod;
 
         // Matches music.init's "lda #$0f / sta $d418" - max volume, no filter routing.
         // Without this the filter's Vol register stays 0 and every voice is silent.

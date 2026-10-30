@@ -61,7 +61,56 @@
  
  Voice_AdvanceOrder:
  .read:
-@@ -212,20 +217,17 @@
+@@ -141,6 +146,7 @@
+ ; A = note dictionary id, X = channel. Writes the note's frequency and returns with Y
+ ; holding that channel's SID offset, which both callers go on to use.
+ 
++		if !def v_freqmod
+ Voice_SetFreq:
+ 		tay                                    ; Y = note id, index into note_freq_low/high
+ 		lda note_freq_low,y
+@@ -148,18 +154,10 @@
+ 		lda note_freq_high,y                    ; switch from note id to SID channel offset,
+ 		ldy SID_channel_offset,x                ; which is cheaper than bouncing it via ZP
+ 		sta $d401,y
+-		if def v_freqmod
+-		; The SID's frequency registers cannot be read back, and vibrato/slide write base + offset
+-		; over whatever a note or arpeggio step just wrote - so the base is kept here, the one
+-		; place every frequency write passes through.
+-		sta voice_freq_hi,x
+-		endif
+ 		pla
+ 		sta $d400,y
+-		if def v_freqmod
+-		sta voice_freq_lo,x
+-		endif
+ 		rts
++		endif
+ 
+ Voice_PlayCurrent:
+ 		lda voice_note,x
+@@ -182,6 +180,20 @@
+ 		lda voice_prev_pw,x                    ; from voice_root below - Y is free until the
+ 		and #$20                               ; jsr, and tya is 2 bytes cheaper than the load
+ 		pha
++		if def v_freqmod
++		; Before the jsr: with slide or vibrato it writes the note plus its offset, and a new note
++		; starts from the bare note. Carry is clear from the bcs above, which is what tells
++		; Voice_SetFreq to write and not to step the offset.
++		lda #0
++		if def v_vibrato
++		sta voice_vib_dir,x
++		endif
++		sta voice_off_lo,x
++		sta voice_off_hi,x
++		if def v_slide
++		sta voice_slide,x                      ; and a new note starts without a slide
++		endif
++		endif
+ 		tya
+ 
+ 		jsr Voice_SetFreq                      ; SetFreq leaves Y = this channel's SID offset.
+@@ -212,31 +224,19 @@
  		ldy arp_start,x                        ; 0 for an instrument with no arpeggio
  		ldx ZP_ch
  		sta voice_wt_pos,x
@@ -75,62 +124,204 @@
  		lda vib_ds,y
 -		and #$f0
 -		lsr
++		tay                                    ; Y is free from here on, and cheaper than a reload
 +		asr #$f0                               ; ALR: and #$f0 + lsr, same flags
  		lsr
  		sta voice_vib_delay,x
- 		lda vib_ds,y
+-		lda vib_ds,y
 -		and #$0f
 -		lsr
++		tya
 +		asr #$0f                               ; ALR: and #$0f + lsr
  		sta voice_vib_cnt,x
- 		lda #0
- 		sta voice_vib_dir,x
-@@ -238,6 +240,9 @@
- 		sta voice_off_lo,x                     ; vibrato and slide both start from the bare note
- 		sta voice_off_hi,x
+-		lda #0
+-		sta voice_vib_dir,x
+-		else
+-		if def v_slide
+-		lda #0
+-		endif
+-		endif
+-		if def v_freqmod
+-		sta voice_off_lo,x                     ; vibrato and slide both start from the bare note
+-		sta voice_off_hi,x
  		endif
-+		if def v_slide
-+		sta voice_slide,x                      ; and a new note starts without a slide
-+		endif
  		pla
  		tay                                    ; park pw_init while testing it - Y is free from
- 		sta voice_prev_pw,x                    ; here to the end of this routine. Stashed for the
-@@ -344,17 +349,15 @@
- 		; rewrites the bare note every frame. Both move one signed 16-bit offset; slide adds
- 		; slide_rate a frame, vibrato traces a triangle from vib_ds (delay/speed) and vib_depth.
- .freqmod:
+@@ -305,92 +305,74 @@
+ 		; expressible.
+ 		ldy voice_arp_pos,x
+ 		if def v_freqmod
+-		beq .freqmod                           ; instrument has no note program
++		beq Voice_FreqMod                      ; instrument has no note program
+ 		else
+-		beq .idle                              ; instrument has no note program
++		beq Voice_AutomationIdle               ; instrument has no note program
+ 		endif
+-.arpstep:
++Voice_ArpStep:
+ 		lda arp_data,y
+-		beq .arploop                           ; $00 = end marker, next byte says where to resume
+-		bpl .arpnote                           ; $01..$7F = a note dictionary id
++		beq Voice_ArpLoop                      ; $00 = end marker, next byte says where to resume
++		bpl Voice_ArpNote                      ; $01..$7F = a note dictionary id
+ 		                                       ; else bit 7 set = exactly $80 = ROOT
+-.arproot:
+ 		lda voice_root,x
+ 		if def v_freqmod
+-		jsr Voice_SetFreq
+-		jmp .freqmod
++		.byte $2c                              ; bit abs: steps over the inc, a byte under a branch
+ 		else
+ 		jmp Voice_SetFreq
+ 		endif
+-.arpnote:
++Voice_ArpNote:
+ 		inc voice_arp_pos,x
+-		if def v_freqmod
+-		jsr Voice_SetFreq
+-		jmp .freqmod
+-		else
++		if !def v_freqmod
+ 		jmp Voice_SetFreq                      ; tail call - it ends in the rts this needs
+-		endif
+-.arploop:
++Voice_ArpLoop:
+ 		iny
+ 		lda arp_data,y
+ 		sta voice_arp_pos,x
+ 		tay
+-		bne .arpstep                           ; a target of 0 would stop the arpeggio instead
+-.idle:
++		bne Voice_ArpStep                      ; a target of 0 would stop the arpeggio instead
++Voice_AutomationIdle:
+ 		rts
++		else
++		sec                                    ; a step: on through the offset, unlike a new note
+ 
+-		if def v_freqmod
+-		; Frequency modulation: slide and vibrato, last in Voice_Automation because the arpeggio
+-		; rewrites the bare note every frame. Both move one signed 16-bit offset; slide adds
+-		; slide_rate a frame, vibrato traces a triangle from vib_ds (delay/speed) and vib_depth.
+-.freqmod:
 -		ldy voice_inst,x
--		if def v_slide
- 		if def v_vibrato
++		; A = note dictionary id, X = channel. Keeps the note, which the SID's registers cannot be
++		; read back for; then a note program (carry set) steps the offset, and a new note (carry
++		; clear) does not. Returns with Y holding this channel's SID offset, which the trigger uses.
++Voice_SetFreq:
++		tay
++		lda note_freq_low,y
++		sta voice_freq_lo,x
++		lda note_freq_high,y
++		sta voice_freq_hi,x
++		bcc Voice_FmWrite
++
++		; Slide and vibrato, last in Voice_Automation because a note program sets a new bare note
++		; every frame. Both move one signed 16-bit offset, which is added back on top of the note
++		; and written every frame - that is what keeps a slide "100" stopped where it got to.
++Voice_FreqMod:
+ 		if def v_slide
+-		if def v_vibrato
 -		lda slide_rate,y
 -		ora vib_depth,y
 -		beq .idle                              ; neither effect on this instrument
 -		lda slide_rate,y
 -		beq .noslide
-+		ldy voice_inst,x                       ; only vibrato reads the instrument's tables
-+		endif
-+		if def v_slide
-+		lda voice_slide,x                      ; with slides in the song the note + offset is
-+		if def v_vibrato                       ; written every frame, slide or none - that is what
-+		beq .noslide                           ; keeps a slide "100" stopped where it got to
- 		else
+-		else
 -		lda slide_rate,y
 -		beq .idle
-+		beq .fmwrite
+-		endif
+-		; offset += rate, sign-extended. None of pla/and/beq/lda touches the carry the adc
+-		; produced, the same idiom the pulse-width sweep uses.
+-		pha
++		lda voice_slide,x                      ; offset += rate, sign-extended
++		bpl .slideup
++		dec voice_off_hi,x
++.slideup:
+ 		clc
+ 		adc voice_off_lo,x
+ 		sta voice_off_lo,x
+-		pla
+-		and #$80
+-		beq .slidehigh
+-		lda #$ff
+-.slidehigh:
+-		adc voice_off_hi,x
+-		sta voice_off_hi,x
++		bcc .slidedone
++		inc voice_off_hi,x
++.slidedone:
  		endif
- 		; offset += rate, sign-extended. None of pla/and/beq/lda touches the carry the adc
- 		; produced, the same idiom the pulse-width sweep uses.
-@@ -402,8 +405,7 @@
+ 		if def v_vibrato
+-.noslide:
+-		lda vib_depth,y
+-		if def v_slide
+-		beq .fmwrite                           ; slide moved the offset: still write it
+-		else
+-		beq .idle
+-		endif
+-		pha
+-		lda voice_vib_delay,x
+-		beq .vibrun
+-		dec voice_vib_delay,x
+-		pla
+-		jmp .fmwrite
+-.vibrun:
++		dec voice_vib_delay,x                  ; counts down to 0 and stays there: the inc puts
++		bpl Voice_FmWrite                      ; back what going past 0 took off
++		inc voice_vib_delay,x
+ 		; offset += depth (dir $00) or -= depth (dir $ff). depth EOR dir is depth or ~depth, and
+-		; the carry - set by the compare exactly when dir is $ff - supplies the +1 that turns
+-		; ~depth into -depth; dir itself is the sign extension for the high byte.
++		; the carry - bit 7 of dir, out of the asl - supplies the +1 that turns ~depth into
++		; -depth; dir itself is the sign extension for the high byte. A depth of 0 adds nothing.
++		ldy voice_inst,x
+ 		lda voice_vib_dir,x
+-		cmp #1
+-		pla
++		asl
++		lda vib_depth,y
+ 		eor voice_vib_dir,x
+ 		adc voice_off_lo,x
+ 		sta voice_off_lo,x
+@@ -398,26 +380,30 @@
+ 		adc voice_off_hi,x
+ 		sta voice_off_hi,x
+ 		dec voice_vib_cnt,x
+-		bpl .fmwrite
++		bpl Voice_FmWrite
  		lda voice_vib_dir,x                    ; run finished: turn round and reload the speed
  		eor #$ff
  		sta voice_vib_dir,x
 -		ldy voice_inst,x
--		lda vib_ds,y
-+		lda vib_ds,y                           ; Y is still voice_inst from .freqmod
+ 		lda vib_ds,y
  		and #$0f
  		sta voice_vib_cnt,x
  		endif
-@@ -529,7 +531,17 @@
+-.fmwrite:
++Voice_FmWrite:
++		ldy SID_channel_offset,x
+ 		lda voice_freq_lo,x
+ 		clc
+ 		adc voice_off_lo,x
+-		pha
++		sta $d400,y
+ 		lda voice_freq_hi,x
+ 		adc voice_off_hi,x
+-		ldy SID_channel_offset,x
+ 		sta $d401,y
+-		pla
+-		sta $d400,y
++		rts
++Voice_ArpLoop:
++		iny
++		lda arp_data,y
++		sta voice_arp_pos,x
++		tay
++		bne Voice_ArpStep                      ; a target of 0 would stop the arpeggio instead
+ 		rts
+ 		endif
+ 
+@@ -529,7 +515,17 @@
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
@@ -148,7 +339,7 @@
  
  ; Tick all channels. Filter_Play above ran by fallthrough, not a jsr, so the trailing rts
  ; below is this routine's own.
-@@ -557,10 +569,11 @@
+@@ -557,10 +553,11 @@
  		rts
  
  .fetch:
@@ -164,7 +355,7 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +585,12 @@
+@@ -572,7 +569,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
@@ -177,9 +368,9 @@
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -604,6 +622,17 @@
- 		tay                                    ; same reasoning - jump straight in with Y set
- 		jmp .nextcmd
+@@ -621,6 +623,15 @@
+ 		iny
+ 		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
 +		if def v_slide
 +		; $D3, then the signed rate: a wait row that also sets the voice's slide, leaving as
@@ -189,12 +380,10 @@
 +		lda (ZP_lb),y
 +		sta voice_slide,x
 +		lda #ROW_WAIT
-+		bne .playrow                           ; always - ROW_WAIT is not zero
 +		endif
-+
- 		; Masking rather than subtracting: the dispatch above already proved which range the
- 		; byte is in, so the low bits are the value and a single AND isolates them - one byte
- 		; less than sec/sbc, and it leaves no carry to think about.
+ .playrow:
+ 		sta voice_note,x
+ 		iny
 --- Startup/Tables.s
 +++ Startup/Tables.s
 @@ -66,6 +66,18 @@

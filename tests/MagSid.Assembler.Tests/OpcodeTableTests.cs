@@ -3,14 +3,14 @@ namespace MagSid.Assembler.Tests;
 /// <summary>
 /// Pins the emitter's opcode table against Goldens\opcodes.txt.
 ///
-/// That file is not a second copy of my own reading of the 6502 table. Every one of the 107 entries
+/// That file is not a second copy of my own reading of the 6502 table. Every one of its entries
 /// was checked against the real c6510 instruction by instruction - each assembled into its own
 /// four-byte slot so a disagreement about one length could not cascade - and the list was frozen
 /// once that passed. The assembler is no longer in this repository, so freezing was the way to keep
 /// the result.
 ///
 /// This matters because the table is the one part of the emitter that cannot be reasoned about: it is
-/// 106 magic numbers, and the asymmetric ones are not guessable. LDX indexes by Y and LDY by X; STX
+/// a hundred magic numbers, and the asymmetric ones are not guessable. LDX indexes by Y and LDY by X; STX
 /// has a zp,y form but no abs,y; STY has zp,x but no abs,x. A single wrong byte here produces a .sid
 /// that plays and sounds wrong.
 /// </summary>

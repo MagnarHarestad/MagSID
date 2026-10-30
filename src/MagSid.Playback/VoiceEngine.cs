@@ -90,13 +90,13 @@ public sealed class VoiceEngine
     public void SetSlide(int rate) => _slideRate = rate;
 
     /// <summary>
-    /// The song has slide rows, so the player was built with the slide code - which writes the
-    /// note plus its offset every frame, slide or no slide. That is what keeps a stopped slide
-    /// where it got to: a note program rewrites the bare note every frame, and only the offset
-    /// added back on top holds the slid pitch. Without slides the write is skipped when neither
-    /// effect is on, as the player does then.
+    /// The song has slide rows or vibrato, so the player was built with that code - which writes
+    /// the note plus its offset every frame, whatever this instrument uses. That is what keeps a
+    /// stopped slide where it got to: a note program rewrites the bare note every frame, and only
+    /// the offset added back on top holds the slid pitch. Outside a song (the jam voices) there is
+    /// no player to match, and the write is skipped when the instrument has no vibrato.
     /// </summary>
-    public bool SongHasSlides { get; set; }
+    public bool SongHasFreqMod { get; set; }
 
     /// <summary>
     /// Hard restart, this frame: zero AD and drop the previous note's envelope at a fast release
@@ -272,8 +272,7 @@ public sealed class VoiceEngine
     /// <summary>
     /// Slide and vibrato, mirroring Voice_Automation's .freqmod section. Both only move one signed
     /// 16-bit offset from the bare note, and the sum is written once at the end. Runs after the
-    /// arpeggio step and rewrites the frequency, because the arpeggio writes the bare note every
-    /// frame it is active.
+    /// arpeggio step, which sets a new bare note every frame it is active.
     ///
     /// Slide is GoatTracker's 1xx/2xx as an instrument property: <see cref="Instrument.SlideRate"/>
     /// is added every frame the note sounds. Vibrato keeps to a 16-bit add too, so the C64 player
@@ -284,30 +283,26 @@ public sealed class VoiceEngine
     /// </summary>
     private void StepFrequencyModulation(Instrument instrument, int baseReg, Action<int, int> write)
     {
-        if (!SongHasSlides && instrument.VibratoDepth == 0)
+        if (!SongHasFreqMod && instrument.VibratoDepth == 0)
         {
             return;
         }
 
-        if (_slideRate != 0)
-        {
-            _freqOffset = (_freqOffset + _slideRate) & 0xFFFF;
-        }
+        _freqOffset = (_freqOffset + _slideRate) & 0xFFFF;
 
-        if (instrument.VibratoDepth != 0)
+        // As the player, this runs for every instrument: a depth of 0 adds nothing, and the
+        // counters of an instrument that has none are not read until the next note arms them.
+        if (_vibDelay > 0)
         {
-            if (_vibDelay > 0)
+            _vibDelay--;
+        }
+        else
+        {
+            _freqOffset = (_freqOffset + (_vibDown ? -instrument.VibratoDepth : instrument.VibratoDepth)) & 0xFFFF;
+            if (--_vibCount < 0)
             {
-                _vibDelay--;
-            }
-            else
-            {
-                _freqOffset = (_freqOffset + (_vibDown ? -instrument.VibratoDepth : instrument.VibratoDepth)) & 0xFFFF;
-                if (--_vibCount < 0)
-                {
-                    _vibDown = !_vibDown;
-                    _vibCount = instrument.VibratoDelaySpeed & 0x0F;
-                }
+                _vibDown = !_vibDown;
+                _vibCount = instrument.VibratoDelaySpeed & 0x0F;
             }
         }
 
@@ -386,9 +381,15 @@ public sealed class VoiceEngine
     private void WriteFrequency(int baseReg, NoteName note, Action<int, int> write)
     {
         var (lo, hi) = NotePalTable.GetFreq(note);
+        _baseFreq = (hi << 8) | lo;
+
+        // In a song with slide or vibrato the player only keeps the note here, and writes it with
+        // its offset in StepFrequencyModulation, straight after.
+        if (SongHasFreqMod)
+            return;
+
         write(baseReg + 0, lo);
         write(baseReg + 1, hi);
-        _baseFreq = (hi << 8) | lo;
     }
 
     /// <summary>The instrument's WAVE program, or the implicit single step an instrument without

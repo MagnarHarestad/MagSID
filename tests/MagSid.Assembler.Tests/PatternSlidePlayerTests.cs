@@ -59,16 +59,66 @@ public class PatternSlidePlayerTests
         END:
         """;
 
+    /// <summary>Vibrato with no slide in the song: a note program under a vibrato, a delayed
+    /// vibrato, and an instrument without one - its note program included - which the player still
+    /// runs the vibrato code for, adding a depth of 0. The first pattern's loop also puts the
+    /// instrument back while the other one's note sounds on.</summary>
+    private const string VibratoOnly = """
+        var v_Song_Speed = 1
+
+        INSTRUMENTS:
+        01, $41, $09, $a0, WAVE $41 $41, ARP "C-4" "E-4" "G-4", VIB $00 $04
+        02, $21, $09, $a0, VIB $32 $10
+        03, $11, $09, $a0, ARP "C-5" "E-5"
+        04, $11, $09, $a0
+        END:
+
+        PAT01:
+        "C-4", 03
+        LS
+        "...", 00
+        "E-4", 02
+        "...", 00
+        "...", 00
+        LE03
+        "G-3", 04
+        "...", 00
+        END:
+
+        PAT02:
+        "C-3", 01
+        "...", 00
+        "D-3", 04
+        "...", 00
+        END:
+
+        ORDER_CH1:
+        1
+        END:
+
+        ORDER_CH2:
+        2
+        END:
+
+        ORDER_CH3:
+        2, 1
+        END:
+        """;
+
     public static TheoryData<string> Songs => new()
     {
         "fixture:slide_only.s",
         "fixture:slide_and_vib.s",
         "mixed",
+        "vibrato",
     };
 
-    private static Core.Model.Song Load(string which) => which == "mixed"
-        ? PatternsFileReader.Parse(Mixed)
-        : PatternsFileReader.Read(FixturePath(which["fixture:".Length..]));
+    private static Core.Model.Song Load(string which) => which switch
+    {
+        "mixed" => PatternsFileReader.Parse(Mixed),
+        "vibrato" => PatternsFileReader.Parse(VibratoOnly),
+        _ => PatternsFileReader.Read(FixturePath(which["fixture:".Length..])),
+    };
 
     [Theory]
     [MemberData(nameof(Songs))]

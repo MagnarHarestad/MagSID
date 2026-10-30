@@ -194,6 +194,15 @@ internal sealed class PlayerCpu
             case "bne": Branch(!_z, ea); break;
             case "beq": Branch(_z, ea); break;
             case "clc": _c = false; break;
+            case "sec": _c = true; break;
+            case "bit":
+            {
+                int v = Read(ea);
+                _z = (_a & v) == 0;
+                _n = (v & 0x80) != 0;
+                _v = (v & 0x40) != 0;
+                break;
+            }
             case "dex": _x = (_x - 1) & 0xFF; SetNz(_x); break;
             case "inx": _x = (_x + 1) & 0xFF; SetNz(_x); break;
             case "iny": _y = (_y + 1) & 0xFF; SetNz(_y); break;

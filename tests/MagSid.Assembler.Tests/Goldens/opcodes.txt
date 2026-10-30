@@ -105,3 +105,5 @@ sty ZeroPageX 94
 tax Implied AA
 tay Implied A8
 tya Implied 98
+sec Implied 38
+bit Absolute 2C

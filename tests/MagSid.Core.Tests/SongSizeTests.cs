@@ -22,7 +22,7 @@ public class SongSizeTests
 
     [Theory]
     [InlineData("Airstrike.s", 894)]
-    [InlineData("BellaCiao.s", 1043)]
+    [InlineData("BellaCiao.s", 1011)]
     [InlineData("Breakdance.s", 864)]
     [InlineData("Lightforce.s", 1006)]
     [InlineData("Magnificent.s", 1137)]
