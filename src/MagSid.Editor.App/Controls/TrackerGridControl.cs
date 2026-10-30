@@ -708,7 +708,8 @@ public sealed class TrackerGridControl : Control
 
     /// <summary>Right-click on a channel's pattern column: the loop markers on the row clicked
     /// and where the channel's song-order restarts. Each is ticked when it is already there, so
-    /// the menu also says what the row has; choosing a ticked one takes it off.</summary>
+    /// the menu also says what the row has; choosing a ticked one takes it off. Loop plays is for
+    /// the loop the row is in, from any of its rows and on any pass.</summary>
     private void ShowMarkerMenu(Point at)
     {
         if (_song is null)
@@ -718,23 +719,26 @@ public sealed class TrackerGridControl : Control
 
         var target = ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false);
         bool hasStart = target is { } t && t.LocalRow > 0 && t.Pattern.Rows[t.LocalRow - 1] is LoopStartRow;
-        var loopEnd = target is { } e && e.LocalRow + 1 < e.Pattern.Rows.Count
-            ? e.Pattern.Rows[e.LocalRow + 1] as LoopEndRow
+        bool hasEnd = target is { } e && e.LocalRow + 1 < e.Pattern.Rows.Count && e.Pattern.Rows[e.LocalRow + 1] is LoopEndRow;
+        var loopEnd = target is { } l && EnclosingLoopEnd(l.Pattern, l.LocalRow) is { } index
+            ? (LoopEndRow)l.Pattern.Rows[index]
             : null;
         var shown = ResolveDisplayRow(_cursorChannel, _cursorRow);
         var order = _song.ChannelOrders[_cursorChannel];
 
+        // The markers of a later pass are pass 1's, and are moved there.
+        bool markers = target is not null && !OnLinkedPass(out _);
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("Loop start (LS)", null, (_, _) => ToggleLoopStartAtCursor())
         {
             Checked = hasStart,
-            Enabled = target is not null,
+            Enabled = markers,
             ShortcutKeyDisplayString = "Ctrl+L",
         });
         menu.Items.Add(new ToolStripMenuItem("Loop end (LE)", null, (_, _) => ToggleLoopEndAtCursor())
         {
-            Checked = loopEnd is not null,
-            Enabled = target is not null,
+            Checked = hasEnd,
+            Enabled = markers,
             ShortcutKeyDisplayString = "Ctrl+E",
         });
 
@@ -766,25 +770,36 @@ public sealed class TrackerGridControl : Control
         menu.Show(this, at);
     }
 
-    /// <summary>Sets how many times the loop ending on the cursor's row plays: null is forever.</summary>
+    /// <summary>Sets how many times the loop the cursor's row is in plays: null is forever. Any
+    /// pass will do - the count belongs to the loop, not to a row of it.</summary>
     private void SetLoopPlaysAtCursor(int? count)
     {
-        if (RefuseOnLinkedPass())
-            return;
-
-        if (ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false) is not { } target)
-        {
-            return;
-        }
-        var (pattern, localRow) = target;
-        if (localRow + 1 >= pattern.Rows.Count || pattern.Rows[localRow + 1] is not LoopEndRow)
+        if (ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false) is not { } target
+            || EnclosingLoopEnd(target.Pattern, target.LocalRow) is not { } index)
         {
             return;
         }
 
-        pattern.Rows[localRow + 1] = new LoopEndRow(count);
+        target.Pattern.Rows[index] = new LoopEndRow(count);
         Edited?.Invoke();
         Invalidate();
+    }
+
+    /// <summary>The index of the LE closing the loop <paramref name="localRow"/> is in: the next LE
+    /// after it, unless an LS comes first - then the row is before that loop, not in it.</summary>
+    private static int? EnclosingLoopEnd(Pattern pattern, int localRow)
+    {
+        for (int i = localRow + 1; i < pattern.Rows.Count; i++)
+        {
+            switch (pattern.Rows[i])
+            {
+                case LoopEndRow:
+                    return i;
+                case LoopStartRow:
+                    return null;
+            }
+        }
+        return null;
     }
 
     /// <summary>When the cursor channel's song-order runs out, it starts again from the entry the
@@ -1679,10 +1694,21 @@ public sealed class TrackerGridControl : Control
     /// when the cursor is on a later pass.</summary>
     private bool RefuseOnLinkedPass()
     {
+        if (!OnLinkedPass(out int pass))
+            return false;
+
+        Notice?.Invoke($"This is pass {pass} of a loop - insert, delete and loop changes go in pass 1");
+        return true;
+    }
+
+    /// <summary>Whether the cursor is on a later pass of an unrolled loop, and which.</summary>
+    private bool OnLinkedPass(out int pass)
+    {
+        pass = 1;
         if (ResolveDisplayRow(_cursorChannel, _cursorRow) is not { } r || DisplayRowAt(r.Pattern, r.Nth) is not { Linked: true } d)
             return false;
 
-        Notice?.Invoke($"This is pass {d.Pass} of a loop - insert, delete and loop changes go in pass 1");
+        pass = d.Pass;
         return true;
     }
 
