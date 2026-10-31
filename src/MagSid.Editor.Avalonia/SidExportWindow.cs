@@ -68,7 +68,7 @@ internal sealed class SidExportWindow : Window
         _author.Text = EditorSettings.SidAuthor;
         _released.Text = $"{DateTime.Now.Year} {EditorSettings.SidAuthor}".Trim();
         _address.Text = $"${EditorSettings.SidLoadAddress:X4}";
-        _zeroPage.Text = $"${EditorSettings.SidZeroPage:X2}";
+        _zeroPage.Text = $"${EditorSettings.ExportZeroPage ?? SidExporter.TopZeroPage(song):X2}";
         _address.TextChanged += (_, _) => CheckAddress();
         _zeroPage.TextChanged += (_, _) => CheckAddress();
         _name.TextChanged += (_, _) => CheckAddress();      // a shower prints them, so they move the player
@@ -127,14 +127,7 @@ internal sealed class SidExportWindow : Window
     /// left for the check, which can say what would fit.</summary>
     private int? ZeroPageStart => SidLoadAddress.TryParse(_zeroPage.Text);
 
-    private int ZeroPageBytes
-    {
-        get
-        {
-            var (first, last) = SidExporter.ZeroPageRange(_song);
-            return last - first + 1;
-        }
-    }
+    private int ZeroPageBytes => SidLoadAddress.HighestZeroPage(SidExporter.TopZeroPage(_song));
 
     /// <summary>A .sid has a header to fill in and a shower prints the name and author; the other two
     /// are for a coder, who needs to know how to call it.</summary>
@@ -288,7 +281,9 @@ internal sealed class SidExportWindow : Window
             if (!IsShower)
             {
                 EditorSettings.SidLoadAddress = address;
-                EditorSettings.SidZeroPage = ZeroPageStart!.Value;
+                // The top is not remembered as a number: the next song may need more or fewer bytes.
+                int zeroPage = ZeroPageStart!.Value;
+                EditorSettings.ExportZeroPage = zeroPage == SidExporter.TopZeroPage(_song) ? null : zeroPage;
             }
             EditorSettings.ExportFormat = format;
             Close();

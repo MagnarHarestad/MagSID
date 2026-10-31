@@ -363,7 +363,7 @@ public static class AboutDocument
         Body("Export builds a PSID .sid file with the real MAGSIDv7 player, at the load address and " +
              "zero page start you choose, or the same player and song as a .prg or a raw .bin to use in your own code. " +
              "Call init once and play once a frame: the dialog gives both addresses and the zero " +
-             "page the player uses. The Musicshower formats, .prg or .d64 disk image, make a program " +
+             "page the player uses, by default as high as it fits, ending on $FF. The Musicshower formats, .prg or .d64 disk image, make a program " +
              "that plays the song on a real C64 and shows the player's values on screen: LOAD it and " +
              "type RUN. Patterns no channel plays are left out.\n\n" +
              "Load and Play .sid opens the SID player: spectrum, one scope per voice, and the " +

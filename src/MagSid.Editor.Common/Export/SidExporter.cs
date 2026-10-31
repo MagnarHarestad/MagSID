@@ -125,6 +125,14 @@ public static class SidExporter
         return (layout.Base, layout.End - 1);
     }
 
+    /// <summary>The start that ends the song's zero page on $FF, which is what the dialog offers first:
+    /// how many bytes the player needs varies with the effects the song uses.</summary>
+    public static int TopZeroPage(Song song)
+    {
+        var (first, last) = ZeroPageRange(song);
+        return SidLoadAddress.HighestZeroPage(last - first + 1);
+    }
+
     private static byte[] BuildImage(Song song, int loadAddress, int zeroPage)
     {
         // Patterns no channel plays any more are pruned on the way out: dropping a song-order entry

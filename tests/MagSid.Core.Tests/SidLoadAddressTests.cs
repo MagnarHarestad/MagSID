@@ -9,6 +9,17 @@ namespace MagSid.Core.Tests;
 public class SidLoadAddressTests
 {
     [Theory]
+    [InlineData(48, 0xD0)]
+    [InlineData(69, 0xBB)]
+    [InlineData(80, 0xB0)]
+    public void The_highest_start_ends_exactly_on_ff(int bytes, int start)
+    {
+        Assert.Equal(start, SidLoadAddress.HighestZeroPage(bytes));
+        Assert.Null(SidLoadAddress.ValidateZeroPage(start, bytes));
+        Assert.NotNull(SidLoadAddress.ValidateZeroPage(start + 1, bytes));
+    }
+
+    [Theory]
     [InlineData(0x02, 48)]
     [InlineData(0x20, 48)]
     [InlineData(0xD0, 48)]      // ends exactly at $FF

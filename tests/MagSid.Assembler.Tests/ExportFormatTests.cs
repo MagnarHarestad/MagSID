@@ -121,6 +121,29 @@ public class ExportFormatTests
         Assert.Equal(SidWrites(standard, 3000), writes);
     }
 
+    [Theory]
+    [InlineData("SOS.s", 0xD0)]                 // 48 bytes, the smallest player: no effects
+    [InlineData("BellaCiao.s", 0xBB)]           // 69, with vibrato
+    public void The_top_of_zero_page_ends_on_ff_whatever_the_song_needs(string file, int top)
+    {
+        var song = PatternsFileReader.Read(SongPath(file));
+
+        Assert.Equal(top, SidExporter.TopZeroPage(song));
+        Assert.Equal((top, 0xFF), SidExporter.ZeroPageRange(song, top));
+        Assert.Equal(SidExporter.ExportBinary(song).Length, SidExporter.ExportBinary(song, 0x1000, top).Length);
+    }
+
+    [Theory]
+    [InlineData("slide_and_vib.s")]
+    [InlineData("funk_slide.s")]
+    public void The_top_fits_with_the_optional_parts_built_in(string fixture)
+    {
+        var song = PatternsFileReader.Read(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+
+        Assert.Equal(0xFF, SidExporter.ZeroPageRange(song, SidExporter.TopZeroPage(song)).Last);
+        Assert.NotEmpty(SidExporter.ExportBinary(song, 0x1000, SidExporter.TopZeroPage(song)));
+    }
+
     [Fact]
     public void The_zero_page_it_reports_moves_with_the_start()
     {

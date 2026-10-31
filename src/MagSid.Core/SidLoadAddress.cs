@@ -52,8 +52,13 @@ public static class SidLoadAddress
         return null;
     }
 
-    /// <summary>Where the player's variables start unless the user says otherwise.</summary>
+    /// <summary>Where the assembly's player keeps its variables, which is what every build gets unless
+    /// told otherwise. The export dialog offers <see cref="HighestZeroPage"/> instead.</summary>
     public const int DefaultZeroPage = 0x20;
+
+    /// <summary>The start that puts <paramref name="byteCount"/> bytes up against the end of zero page,
+    /// finishing on $FF.</summary>
+    public static int HighestZeroPage(int byteCount) => 0x100 - byteCount;
 
     /// <summary>$00 and $01 are the CPU's own port, which is not memory to keep a variable in.</summary>
     public const int LowestZeroPage = 0x02;
@@ -66,7 +71,7 @@ public static class SidLoadAddress
         if (first < LowestZeroPage)
             return $"${first:X2} is too low. $00 and $01 are the CPU's own port, so the player can start at ${LowestZeroPage:X2} at the lowest.";
 
-        int highest = 0x100 - byteCount;
+        int highest = HighestZeroPage(byteCount);
         if (first > highest)
             return $"The player needs {byteCount} bytes of zero page, so it can start at ${highest:X2} at the highest.";
 
