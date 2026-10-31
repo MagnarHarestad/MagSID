@@ -8,6 +8,27 @@ namespace MagSid.Core.Tests;
 /// </summary>
 public class SidLoadAddressTests
 {
+    [Theory]
+    [InlineData(0x02, 48)]
+    [InlineData(0x20, 48)]
+    [InlineData(0xD0, 48)]      // ends exactly at $FF
+    [InlineData(0xAC, 80)]
+    public void A_zero_page_block_that_fits_is_accepted(int first, int bytes)
+    {
+        Assert.Null(SidLoadAddress.ValidateZeroPage(first, bytes));
+    }
+
+    [Theory]
+    [InlineData(0x00, 48, "$02")]
+    [InlineData(0x01, 48, "$02")]
+    [InlineData(0xD1, 48, "$D0")]
+    [InlineData(0xC0, 80, "$B0")]
+    [InlineData(0x100, 48, "$D0")]
+    public void A_zero_page_block_that_does_not_fit_is_refused_saying_what_would(int first, int bytes, string fits)
+    {
+        Assert.Contains(fits, SidLoadAddress.ValidateZeroPage(first, bytes));
+    }
+
     /// <summary>Around BellaCiao's real size, so the ranges here are the ones a song actually
     /// covers rather than a convenient round number.</summary>
     private const int TypicalSong = 1051;

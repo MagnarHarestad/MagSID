@@ -52,6 +52,27 @@ public static class SidLoadAddress
         return null;
     }
 
+    /// <summary>Where the player's variables start unless the user says otherwise.</summary>
+    public const int DefaultZeroPage = 0x20;
+
+    /// <summary>$00 and $01 are the CPU's own port, which is not memory to keep a variable in.</summary>
+    public const int LowestZeroPage = 0x02;
+
+    /// <summary>Null when the player's <paramref name="byteCount"/> variables fit from
+    /// <paramref name="first"/>, otherwise the reason they do not, phrased for a message box. The whole
+    /// block has to stay in zero page: an indexed access there wraps instead of going on to $0100.</summary>
+    public static string? ValidateZeroPage(int first, int byteCount)
+    {
+        if (first < LowestZeroPage)
+            return $"${first:X2} is too low. $00 and $01 are the CPU's own port, so the player can start at ${LowestZeroPage:X2} at the lowest.";
+
+        int highest = 0x100 - byteCount;
+        if (first > highest)
+            return $"The player needs {byteCount} bytes of zero page, so it can start at ${highest:X2} at the highest.";
+
+        return null;
+    }
+
     /// <summary>Accepts "$2000", "2000" and "0x2000" - the three ways the address gets written in
     /// this project's own sources and notes. Null when it is not a 16-bit hex number at all.</summary>
     public static int? TryParse(string? text)

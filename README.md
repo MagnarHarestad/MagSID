@@ -55,7 +55,7 @@ system. 1.64's settings carry over.
   transport instead.
 - A MIDI keyboard is chosen under **MIDI**. The computer keyboard plays notes too, the classic
   tracker way: `ZSXDCVGBHNJM` is one octave and `Q2W3ER5T6Y7U` the next.
-- **Menu → Export** (F9) writes a PSID `.sid`, a `.prg` or raw `.bin` to use in your own code, or the Musicshower as a `.prg` or `.d64`: a program that plays the song on a real C64 and shows the player's values on screen.
+- **Menu → Export** (F9) writes a PSID `.sid`, a `.prg` or raw `.bin` to use in your own code, at the load address and zero page start you choose, or the Musicshower as a `.prg` or `.d64`: a program that plays the song on a real C64 and shows the player's values on screen.
   **Menu → Load and Play .sid** plays a `.sid`, and
   exports it as WAV, MP3 or FLAC.
 - **Menu → Import MIDI** makes a new song from a `.mid` file: bass and drums on channel 1, the

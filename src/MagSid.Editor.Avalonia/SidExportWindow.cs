@@ -14,8 +14,8 @@ using AvColor = Avalonia.Media.Color;
 namespace MagSid.Editor.Avalonia;
 
 /// <summary>
-/// Menu → Export: the format, the load address, and for a .sid its header's name, author and release
-/// line. The address is checked as it is typed against the song's real size - the same rules as the
+/// Menu → Export: the format, the load address, where the player's variables go in zero page, and for
+/// a .sid its header's name, author and release line. The address is checked as it is typed against the song's real size - the same rules as the
 /// Windows editor's export dialog (SidLoadAddress). The Musicshower formats have no address to choose:
 /// the shower comes first and the player and song follow it. The file itself comes from SidExporter,
 /// which builds the C64 image in C# - no assembler needed, on any system.
@@ -41,6 +41,7 @@ internal sealed class SidExportWindow : Window
     private readonly TextBox _author = new();
     private readonly TextBox _released = new();
     private readonly TextBox _address = new() { Width = 90, HorizontalAlignment = HorizontalAlignment.Left, FontFamily = new FontFamily("Consolas, Menlo, monospace") };
+    private readonly TextBox _zeroPage = new() { Width = 90, HorizontalAlignment = HorizontalAlignment.Left, FontFamily = new FontFamily("Consolas, Menlo, monospace") };
     private readonly TextBlock _range = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _about = new() { TextWrapping = TextWrapping.Wrap, Foreground = Dim };
     private readonly TextBlock _size = new() { Foreground = Dim };
@@ -48,7 +49,7 @@ internal sealed class SidExportWindow : Window
     private readonly Control _authorRow;
     private readonly Control _releasedRow;
     private readonly Control _addressRow;
-    private readonly string _zeroPage;
+    private readonly Control _zeroPageRow;
     private readonly Button _export = new() { Content = "Export...", MinWidth = 90 };
 
     public SidExportWindow(Song song, string name, ChipModel chip)
@@ -56,9 +57,6 @@ internal sealed class SidExportWindow : Window
         _song = song;
         _chip = chip;
         _bytes = SongSizeCalculator.Measure(song.WithUnusedPatternsRemoved()).TotalBytes;
-
-        var (zpFirst, zpLast) = SidExporter.ZeroPageRange(song);
-        _zeroPage = $"zero page ${zpFirst:X2}-${zpLast:X2}";
 
         Title = "Export";
         Width = 460;
@@ -70,7 +68,9 @@ internal sealed class SidExportWindow : Window
         _author.Text = EditorSettings.SidAuthor;
         _released.Text = $"{DateTime.Now.Year} {EditorSettings.SidAuthor}".Trim();
         _address.Text = $"${EditorSettings.SidLoadAddress:X4}";
+        _zeroPage.Text = $"${EditorSettings.SidZeroPage:X2}";
         _address.TextChanged += (_, _) => CheckAddress();
+        _zeroPage.TextChanged += (_, _) => CheckAddress();
         _name.TextChanged += (_, _) => CheckAddress();      // a shower prints them, so they move the player
         _author.TextChanged += (_, _) => CheckAddress();
 
@@ -85,6 +85,7 @@ internal sealed class SidExportWindow : Window
         _authorRow = Labelled("Author", _author);
         _releasedRow = Labelled("Released", _released);
         _addressRow = Labelled("Load address", _address);
+        _zeroPageRow = Labelled("Zero page start", _zeroPage);
 
         Content = new StackPanel
         {
@@ -97,6 +98,7 @@ internal sealed class SidExportWindow : Window
                 _authorRow,
                 _releasedRow,
                 _addressRow,
+                _zeroPageRow,
                 _range,
                 _about,
                 _size,
@@ -121,6 +123,19 @@ internal sealed class SidExportWindow : Window
 
     private string SongAuthor => _author.Text ?? "";
 
+    /// <summary>Null when what is typed is not a hex number. One that is too high for zero page is
+    /// left for the check, which can say what would fit.</summary>
+    private int? ZeroPageStart => SidLoadAddress.TryParse(_zeroPage.Text);
+
+    private int ZeroPageBytes
+    {
+        get
+        {
+            var (first, last) = SidExporter.ZeroPageRange(_song);
+            return last - first + 1;
+        }
+    }
+
     /// <summary>A .sid has a header to fill in and a shower prints the name and author; the other two
     /// are for a coder, who needs to know how to call it.</summary>
     private void ShowFormat()
@@ -129,6 +144,7 @@ internal sealed class SidExportWindow : Window
         _authorRow.IsVisible = Format == SongExportFormat.Sid || IsShower;
         _releasedRow.IsVisible = Format == SongExportFormat.Sid;
         _addressRow.IsVisible = !IsShower;
+        _zeroPageRow.IsVisible = !IsShower;
 
         _about.Text = Format switch
         {
@@ -168,9 +184,18 @@ internal sealed class SidExportWindow : Window
             ? SidLoadAddress.Validate(address, _bytes)
             : "Write the address in hex, as $1000.";
 
+        var zeroPage = ZeroPageStart;
+        if (problem is null)
+        {
+            problem = zeroPage is { } first
+                ? SidLoadAddress.ValidateZeroPage(first, ZeroPageBytes)
+                : "Write the zero page start in hex, as $20.";
+        }
+
         if (problem is null && SidLoadAddress.TryParse(_address.Text) is { } ok)
         {
-            _range.Text = $"Loads at ${ok:X4}-${ok + _bytes - 1:X4}; init ${ok:X4}, play ${ok + 3:X4}; {_zeroPage}.";
+            var (zpFirst, zpLast) = SidExporter.ZeroPageRange(_song, zeroPage!.Value);
+            _range.Text = $"Loads at ${ok:X4}-${ok + _bytes - 1:X4}; init ${ok:X4}, play ${ok + 3:X4}; zero page ${zpFirst:X2}-${zpLast:X2}.";
             _range.Foreground = Dim;
             _export.IsEnabled = true;
             return ok;
@@ -239,10 +264,10 @@ internal sealed class SidExportWindow : Window
             switch (format)
             {
                 case SongExportFormat.Prg:
-                    bytes = SidExporter.ExportPrg(_song, address);
+                    bytes = SidExporter.ExportPrg(_song, address, ZeroPageStart!.Value);
                     break;
                 case SongExportFormat.Binary:
-                    bytes = SidExporter.ExportBinary(_song, address);
+                    bytes = SidExporter.ExportBinary(_song, address, ZeroPageStart!.Value);
                     break;
                 case SongExportFormat.ShowerPrg:
                     bytes = SidExporter.ExportShowerPrg(_song, SongName, SongAuthor);
@@ -254,14 +279,17 @@ internal sealed class SidExportWindow : Window
                     break;
                 default:
                     var metadata = new SidExporter.Metadata(_name.Text ?? "", _author.Text ?? "", _released.Text ?? "");
-                    bytes = SidExporter.Export(_song, metadata, _chip, address);
+                    bytes = SidExporter.Export(_song, metadata, _chip, address, ZeroPageStart!.Value);
                     EditorSettings.SidAuthor = _author.Text ?? "";
                     break;
             }
 
             File.WriteAllBytes(path, bytes);
             if (!IsShower)
+            {
                 EditorSettings.SidLoadAddress = address;
+                EditorSettings.SidZeroPage = ZeroPageStart!.Value;
+            }
             EditorSettings.ExportFormat = format;
             Close();
         }

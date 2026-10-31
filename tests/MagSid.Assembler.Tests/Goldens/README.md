@@ -12,6 +12,9 @@ still ran and were green, by:
 c6510.exe -p include/ -d v_export_loc=$1000 -s out.prg $1000 + export_<song>.s
 ```
 
+`bellaciao_zp80.bin` is the song at $1000 with `addr.music.zp` defined as $80, the player's zero page moved. Built the
+same way with $20, that route gives `bellaciao.bin` exactly.
+
 `bellaciao_2000.bin` and `bellaciao_4400.bin` are the same song assembled at those origins, which is
 what pins relocation. `slide_only.bin` and `slide_and_vib.bin` come from the two fixture songs beside
 this folder: no real song uses SLIDE, so without them the slide paths and the shared

@@ -63,14 +63,16 @@ public static class SidExporter
     public sealed record Metadata(string Name, string Author, string Released);
 
     public static byte[] Export(
-        Song song, Metadata metadata, ChipModel chipModel, int loadAddress = SidLoadAddress.Default) =>
-        BuildPsid(BuildImage(song, loadAddress), metadata, chipModel, loadAddress);
+        Song song, Metadata metadata, ChipModel chipModel, int loadAddress = SidLoadAddress.Default,
+        int zeroPage = SidLoadAddress.DefaultZeroPage) =>
+        BuildPsid(BuildImage(song, loadAddress, zeroPage), metadata, chipModel, loadAddress);
 
     /// <summary>The image with its load address in front, low byte first: what the C64 calls a
     /// program file. It holds entry points to call, not something to RUN.</summary>
-    public static byte[] ExportPrg(Song song, int loadAddress = SidLoadAddress.Default)
+    public static byte[] ExportPrg(
+        Song song, int loadAddress = SidLoadAddress.Default, int zeroPage = SidLoadAddress.DefaultZeroPage)
     {
-        byte[] image = BuildImage(song, loadAddress);
+        byte[] image = BuildImage(song, loadAddress, zeroPage);
         var result = new byte[image.Length + 2];
         result[0] = (byte)loadAddress;
         result[1] = (byte)(loadAddress >> 8);
@@ -79,8 +81,9 @@ public static class SidExporter
     }
 
     /// <summary>The image alone, which only runs at the address it was built for.</summary>
-    public static byte[] ExportBinary(Song song, int loadAddress = SidLoadAddress.Default) =>
-        BuildImage(song, loadAddress);
+    public static byte[] ExportBinary(
+        Song song, int loadAddress = SidLoadAddress.Default, int zeroPage = SidLoadAddress.DefaultZeroPage) =>
+        BuildImage(song, loadAddress, zeroPage);
 
     /// <summary>The song with the Musicshower in front. It decides its own address: the shower's size
     /// varies, and the player and song start where it ends.</summary>
@@ -116,13 +119,13 @@ public static class SidExporter
 
     /// <summary>The zero-page bytes the exported player uses, first and last, which a demo or game
     /// around it has to leave alone.</summary>
-    public static (int First, int Last) ZeroPageRange(Song song)
+    public static (int First, int Last) ZeroPageRange(Song song, int zeroPage = SidLoadAddress.DefaultZeroPage)
     {
-        var layout = new ZeroPageLayout(SongImageBuilder.FeaturesOf(song.WithUnusedPatternsRemoved()));
+        var layout = new ZeroPageLayout(SongImageBuilder.FeaturesOf(song.WithUnusedPatternsRemoved()), zeroPage);
         return (layout.Base, layout.End - 1);
     }
 
-    private static byte[] BuildImage(Song song, int loadAddress)
+    private static byte[] BuildImage(Song song, int loadAddress, int zeroPage)
     {
         // Patterns no channel plays any more are pruned on the way out: dropping a song-order entry
         // deliberately leaves its pattern in the pool so typing the number again brings the data
@@ -131,10 +134,15 @@ public static class SidExporter
         // untouched.
         var exported = song.WithUnusedPatternsRemoved();
 
+        // Before building: the emitter cannot encode an address past zero page at all.
+        int zeroPageBytes = new ZeroPageLayout(SongImageBuilder.FeaturesOf(exported), zeroPage).ByteCount;
+        if (SidLoadAddress.ValidateZeroPage(zeroPage, zeroPageBytes) is { } zeroPageProblem)
+            throw new SidExportException(zeroPageProblem);
+
         byte[] memoryImage;
         try
         {
-            memoryImage = SongImageBuilder.Build(exported, loadAddress);
+            memoryImage = SongImageBuilder.Build(exported, loadAddress, zeroPage);
         }
         catch (SongTooLargeException ex)
         {

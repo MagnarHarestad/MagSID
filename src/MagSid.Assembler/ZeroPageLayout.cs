@@ -84,7 +84,7 @@ public sealed class ZeroPageLayout
         End = _last + 1;
     }
 
-    public const int DefaultBaseAddress = 0x20;
+    public const int DefaultBaseAddress = Core.SidLoadAddress.DefaultZeroPage;
 
     public int Base { get; }
 

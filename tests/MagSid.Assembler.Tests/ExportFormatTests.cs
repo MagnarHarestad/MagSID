@@ -75,6 +75,80 @@ public class ExportFormatTests
         Assert.Equal(before, SidExporter.ExportBinary(song, 0x1000).Length);
     }
 
+    private static List<(int Register, int Value)> SidWrites(byte[] image, int frames, Action<int>? everyWrite = null)
+    {
+        var writes = new List<(int, int)>();
+        var memory = new byte[0x10000];
+        image.CopyTo(memory, 0x1000);
+        var cpu = new Playback.Mos6502(memory, (address, value) =>
+        {
+            everyWrite?.Invoke(address);
+            if (address is >= 0xD400 and <= 0xD41C)
+                writes.Add((address, value));
+        });
+
+        cpu.Call(0x1000);
+        for (int frame = 0; frame < frames; frame++)
+            cpu.Call(0x1003);
+        return writes;
+    }
+
+    [Theory]
+    [InlineData("BellaCiao.s", 0x02)]
+    [InlineData("BellaCiao.s", 0x80)]
+    [InlineData("BellaCiao.s", 0xBB)]           // the last that fits: $BB-$FF
+    [InlineData("SOS.s", 0xC0)]
+    [InlineData("Magnificent.s", 0x90)]
+    public void A_moved_zero_page_plays_the_same_and_stays_where_it_was_put(string file, int zeroPage)
+    {
+        var song = PatternsFileReader.Read(SongPath(file));
+        byte[] moved = SidExporter.ExportBinary(song, 0x1000, zeroPage);
+        byte[] standard = SidExporter.ExportBinary(song, 0x1000);
+        var (first, last) = SidExporter.ZeroPageRange(song, zeroPage);
+
+        Assert.Equal(standard.Length, moved.Length);
+        Assert.Equal(zeroPage, first);
+
+        var outside = new HashSet<int>();
+        var writes = SidWrites(moved, 3000, address =>
+        {
+            // The stack and return addresses are the CPU's; only zero page is the player's to keep to.
+            if (address < 0x100 && (address < first || address > last))
+                outside.Add(address);
+        });
+
+        Assert.Empty(outside);
+        Assert.Equal(SidWrites(standard, 3000), writes);
+    }
+
+    [Fact]
+    public void The_zero_page_it_reports_moves_with_the_start()
+    {
+        Assert.Equal((0x80, 0xC4), SidExporter.ZeroPageRange(BellaCiao(), 0x80));
+    }
+
+    [Fact]
+    public void A_moved_zero_page_is_what_c6510_built()
+    {
+        Assert.Equal(File.ReadAllBytes(GoldenPath("bellaciao_zp80")), SidExporter.ExportBinary(BellaCiao(), 0x1000, 0x80));
+    }
+
+    [Theory]
+    [InlineData(0x00)]      // the CPU's own port
+    [InlineData(0x01)]
+    [InlineData(0xBC)]      // one too high for BellaCiao's 69 bytes
+    [InlineData(0xFF)]
+    [InlineData(0x100)]     // not zero page at all
+    public void A_zero_page_the_player_does_not_fit_in_is_refused_in_every_format(int zeroPage)
+    {
+        var song = BellaCiao();
+        var metadata = new SidExporter.Metadata("n", "a", "r");
+
+        Assert.Throws<SidExportException>(() => SidExporter.Export(song, metadata, ChipModel.Mos8580, 0x1000, zeroPage));
+        Assert.Throws<SidExportException>(() => SidExporter.ExportPrg(song, 0x1000, zeroPage));
+        Assert.Throws<SidExportException>(() => SidExporter.ExportBinary(song, 0x1000, zeroPage));
+    }
+
     [Theory]
     [InlineData("BellaCiao.s", 0x20, 0x64)]     // vibrato
     [InlineData("SOS.s", 0x20, 0x4F)]           // neither effect

@@ -21,18 +21,21 @@ public static class SongImageBuilder
         Funk: song.HasFunk);
 
     /// <summary>Emits at <paramref name="loadAddress"/>. Nothing is position-fixed - the player has
-    /// no alignment requirements and no baked-in addresses - so this is the whole of relocation.</summary>
-    public static byte[] Build(Song song, int loadAddress = Core.SidLoadAddress.Default)
+    /// no alignment requirements and no baked-in addresses - so this is the whole of relocation. The
+    /// same goes for where its variables start in zero page.</summary>
+    public static byte[] Build(
+        Song song, int loadAddress = Core.SidLoadAddress.Default, int zeroPage = Core.SidLoadAddress.DefaultZeroPage)
     {
         var asm = new Emitter6502(loadAddress);
-        Emit(asm, song);
+        Emit(asm, song, zeroPage: zeroPage);
         return asm.Assemble();
     }
 
     /// <summary>The same, at the emitter's current address and with the player's shadows when given.
     /// <paramref name="before"/> emits what goes in front, and gets the labels it may need.</summary>
     internal static void Emit(
-        Emitter6502 asm, Song song, PlayerShadows? shadows = null, Action<SongTableLabels>? before = null)
+        Emitter6502 asm, Song song, PlayerShadows? shadows = null, Action<SongTableLabels>? before = null,
+        int zeroPage = Core.SidLoadAddress.DefaultZeroPage)
     {
         var features = FeaturesOf(song);
 
@@ -80,7 +83,7 @@ public static class SongImageBuilder
                     ? song.Instruments.Count(i => i.HasVibrato)
                     : null,
             },
-            features, new ZeroPageLayout(features), shadows);
+            features, new ZeroPageLayout(features, zeroPage), shadows);
 
         // --- song data, in the order a real build puts it ---
 

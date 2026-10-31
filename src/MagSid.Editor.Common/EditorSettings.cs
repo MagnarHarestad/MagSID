@@ -65,6 +65,7 @@ public static class EditorSettings
     private static bool? _checkForUpdates;
     private static string _sidAuthor = string.Empty;
     private static int _sidLoadAddress = MagSid.Core.SidLoadAddress.Default;
+    private static int _sidZeroPage = MagSid.Core.SidLoadAddress.DefaultZeroPage;
     private static MagSid.Editor.App.Export.SongExportFormat _exportFormat;
     private static readonly Dictionary<DialogFolder, string> _folders = [];
     private static string _midiDevice = string.Empty;
@@ -214,6 +215,25 @@ public static class EditorSettings
         }
     }
 
+    /// <summary>Where the exported player's variables start in zero page, as last chosen.</summary>
+    public static int SidZeroPage
+    {
+        get
+        {
+            EnsureLoaded();
+            return _sidZeroPage;
+        }
+        set
+        {
+            EnsureLoaded();
+            if (_sidZeroPage == value)
+                return;
+
+            _sidZeroPage = value;
+            Save();
+        }
+    }
+
     /// <summary>The format last exported to: .sid until another has been chosen.</summary>
     public static MagSid.Editor.App.Export.SongExportFormat ExportFormat
     {
@@ -311,6 +331,8 @@ public static class EditorSettings
                 // "never chosen" rather than "load at $0000".
                 if (stored.SidLoadAddress is > 0)
                     _sidLoadAddress = stored.SidLoadAddress.Value;
+                if (stored.SidZeroPage is > 0)
+                    _sidZeroPage = stored.SidZeroPage.Value;
                 if (Enum.IsDefined(stored.ExportFormat))
                     _exportFormat = stored.ExportFormat;
 
@@ -358,6 +380,7 @@ public static class EditorSettings
                 CheckForUpdates = _checkForUpdates,
                 SidAuthor = _sidAuthor,
                 SidLoadAddress = _sidLoadAddress,
+                SidZeroPage = _sidZeroPage,
                 ExportFormat = _exportFormat,
                 Folders = _folders.ToDictionary(f => f.Key.ToString(), f => f.Value),
                 MidiDevice = _midiDevice,
@@ -379,6 +402,7 @@ public static class EditorSettings
         public bool? CheckForUpdates { get; set; }
         public string? SidAuthor { get; set; }
         public int? SidLoadAddress { get; set; }
+        public int? SidZeroPage { get; set; }
         public MagSid.Editor.App.Export.SongExportFormat ExportFormat { get; set; }
         public Dictionary<string, string>? Folders { get; set; }
 
