@@ -26,6 +26,12 @@ public enum SongExportFormat
     /// <summary>The player and song alone, to include in a demo or game. Assembled for one address
     /// like the others, and nothing in the file says which.</summary>
     Binary = 2,
+
+    /// <summary>A program that plays the song by itself on a C64 with the Musicshower on screen.</summary>
+    ShowerPrg = 3,
+
+    /// <summary>The same program on a 1541 disk image.</summary>
+    ShowerD64 = 4,
 }
 
 /// <summary>
@@ -51,6 +57,9 @@ public static class SidExporter
     /// the two JMPs at the top of the player, in that order.</summary>
     private const int PlayEntryOffset = 0x3;
 
+    /// <summary>The shower runs with BASIC and the KERNAL switched out, so only I/O stops it.</summary>
+    private const int ShowerIoStart = 0xD000;
+
     public sealed record Metadata(string Name, string Author, string Released);
 
     public static byte[] Export(
@@ -72,6 +81,38 @@ public static class SidExporter
     /// <summary>The image alone, which only runs at the address it was built for.</summary>
     public static byte[] ExportBinary(Song song, int loadAddress = SidLoadAddress.Default) =>
         BuildImage(song, loadAddress);
+
+    /// <summary>The song with the Musicshower in front. It decides its own address: the shower's size
+    /// varies, and the player and song start where it ends.</summary>
+    public static ShowerImage BuildShower(Song song, string title, string author)
+    {
+        ShowerImage shower;
+        try
+        {
+            shower = ShowerProgram.Build(song.WithUnusedPatternsRemoved(), title, author);
+        }
+        catch (SongTooLargeException ex)
+        {
+            throw new SidExportException(ex.Message);
+        }
+
+        if (shower.End > ShowerIoStart)
+        {
+            throw new SidExportException(
+                $"With the Musicshower the song reaches ${shower.End - 1:X4}, into the I/O area from " +
+                $"${ShowerIoStart:X4}. Export it without the shower instead.");
+        }
+
+        return shower;
+    }
+
+    /// <summary>A program for LOAD and RUN.</summary>
+    public static byte[] ExportShowerPrg(Song song, string title, string author) =>
+        BuildShower(song, title, author).ToPrg();
+
+    /// <summary>A disk image holding that program under the song's name.</summary>
+    public static byte[] ExportShowerD64(Song song, string title, string author) =>
+        D64Image.Create(title, ExportShowerPrg(song, title, author));
 
     /// <summary>The zero-page bytes the exported player uses, first and last, which a demo or game
     /// around it has to leave alone.</summary>

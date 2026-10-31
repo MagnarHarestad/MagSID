@@ -25,6 +25,12 @@ public sealed class Emitter6502(int origin)
 
         /// <summary>One byte holding the signed distance from the following instruction.</summary>
         Relative,
+
+        /// <summary>One byte holding the target's low byte, for an immediate.</summary>
+        LowByte,
+
+        /// <summary>One byte holding the target's high byte, for an immediate.</summary>
+        HighByte,
     }
 
     private readonly record struct Fixup(int Offset, Label Target, FixupKind Kind);
@@ -66,6 +72,9 @@ public sealed class Emitter6502(int origin)
     /// whatever comes before, and only the rest of the table has to exist.</summary>
     public void DefineBefore(Label label) => label.Address = Pc - 1;
 
+    /// <summary>A label at a known address that nothing is emitted for here.</summary>
+    public void DefineAt(Label label, int address) => label.Address = address;
+
     // --- raw data ------------------------------------------------------------------------------
 
     public void Byte(int value) => _bytes.Add((byte)value);
@@ -102,6 +111,7 @@ public sealed class Emitter6502(int origin)
     public void Sty(Operand operand) => Emit("sty", operand);
 
     public void Adc(Operand operand) => Emit("adc", operand);
+    public void Sbc(Operand operand) => Emit("sbc", operand);
     public void And(Operand operand) => Emit("and", operand);
     public void Ora(Operand operand) => Emit("ora", operand);
     public void Eor(Operand operand) => Emit("eor", operand);
@@ -143,6 +153,9 @@ public sealed class Emitter6502(int origin)
     public void Pha() => Emit("pha", None);
     public void Pla() => Emit("pla", None);
     public void Rts() => Emit("rts", None);
+    public void Rti() => Emit("rti", None);
+    public void Sei() => Emit("sei", None);
+    public void Cli() => Emit("cli", None);
     public void Tax() => Emit("tax", None);
     public void Tay() => Emit("tay", None);
     public void Tya() => Emit("tya", None);
@@ -215,6 +228,11 @@ public sealed class Emitter6502(int origin)
                     Word(operand.Value);
                 break;
 
+            case AddressMode.Immediate when operand.Target is { } half:
+                _fixups.Add(new Fixup(_bytes.Count, half, operand.TakesHighByte ? FixupKind.HighByte : FixupKind.LowByte));
+                Byte(0);
+                break;
+
             default:
                 if (operand.Value > 0xFF)
                 {
@@ -254,6 +272,12 @@ public sealed class Emitter6502(int origin)
             {
                 image[offset] = (byte)(address & 0xFF);
                 image[offset + 1] = (byte)(address >> 8);
+                continue;
+            }
+
+            if (kind is FixupKind.LowByte or FixupKind.HighByte)
+            {
+                image[offset] = (byte)(kind == FixupKind.LowByte ? address & 0xFF : address >> 8);
                 continue;
             }
 

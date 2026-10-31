@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using MagSid.Assembler;
 using MagSid.Core;
 using MagSid.Core.Model;
 using MagSid.Editor.App;
@@ -15,8 +16,9 @@ namespace MagSid.Editor.Avalonia;
 /// <summary>
 /// Menu → Export: the format, the load address, and for a .sid its header's name, author and release
 /// line. The address is checked as it is typed against the song's real size - the same rules as the
-/// Windows editor's export dialog (SidLoadAddress). The file itself comes from SidExporter, which
-/// builds the C64 image in C# - no assembler needed, on any system.
+/// Windows editor's export dialog (SidLoadAddress). The Musicshower formats have no address to choose:
+/// the shower comes first and the player and song follow it. The file itself comes from SidExporter,
+/// which builds the C64 image in C# - no assembler needed, on any system.
 /// </summary>
 internal sealed class SidExportWindow : Window
 {
@@ -28,7 +30,11 @@ internal sealed class SidExportWindow : Window
     private readonly int _bytes;
     private readonly ComboBox _format = new()
     {
-        ItemsSource = new[] { "SID tune (.sid)", "C64 program (.prg)", "Raw binary (.bin)" },
+        ItemsSource = new[]
+        {
+            "SID tune (.sid)", "C64 program (.prg)", "Raw binary (.bin)",
+            "C64 Musicshower (.prg)", "C64 Musicshower on disk (.d64)",
+        },
         HorizontalAlignment = HorizontalAlignment.Stretch,
     };
     private readonly TextBox _name = new();
@@ -38,7 +44,10 @@ internal sealed class SidExportWindow : Window
     private readonly TextBlock _range = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _about = new() { TextWrapping = TextWrapping.Wrap, Foreground = Dim };
     private readonly TextBlock _size = new() { Foreground = Dim };
-    private readonly Control[] _sidOnly;
+    private readonly Control _nameRow;
+    private readonly Control _authorRow;
+    private readonly Control _releasedRow;
+    private readonly Control _addressRow;
     private readonly string _zeroPage;
     private readonly Button _export = new() { Content = "Export...", MinWidth = 90 };
 
@@ -62,6 +71,8 @@ internal sealed class SidExportWindow : Window
         _released.Text = $"{DateTime.Now.Year} {EditorSettings.SidAuthor}".Trim();
         _address.Text = $"${EditorSettings.SidLoadAddress:X4}";
         _address.TextChanged += (_, _) => CheckAddress();
+        _name.TextChanged += (_, _) => CheckAddress();      // a shower prints them, so they move the player
+        _author.TextChanged += (_, _) => CheckAddress();
 
         _format.SelectedIndex = (int)EditorSettings.ExportFormat;
         _format.SelectionChanged += (_, _) => ShowFormat();
@@ -70,7 +81,10 @@ internal sealed class SidExportWindow : Window
         cancel.Click += (_, _) => Close();
         _export.Click += async (_, _) => await ExportAsync();
 
-        _sidOnly = [Labelled("Name", _name), Labelled("Author", _author), Labelled("Released", _released)];
+        _nameRow = Labelled("Name", _name);
+        _authorRow = Labelled("Author", _author);
+        _releasedRow = Labelled("Released", _released);
+        _addressRow = Labelled("Load address", _address);
 
         Content = new StackPanel
         {
@@ -79,10 +93,10 @@ internal sealed class SidExportWindow : Window
             Children =
             {
                 Labelled("Format", _format),
-                _sidOnly[0],
-                _sidOnly[1],
-                _sidOnly[2],
-                Labelled("Load address", _address),
+                _nameRow,
+                _authorRow,
+                _releasedRow,
+                _addressRow,
                 _range,
                 _about,
                 _size,
@@ -101,23 +115,34 @@ internal sealed class SidExportWindow : Window
 
     private SongExportFormat Format => (SongExportFormat)Math.Max(0, _format.SelectedIndex);
 
-    /// <summary>Only a .sid has a header to fill in; the other two are for a coder, who needs to
-    /// know how to call it.</summary>
+    private bool IsShower => Format is SongExportFormat.ShowerPrg or SongExportFormat.ShowerD64;
+
+    private string SongName => _name.Text ?? "";
+
+    private string SongAuthor => _author.Text ?? "";
+
+    /// <summary>A .sid has a header to fill in and a shower prints the name and author; the other two
+    /// are for a coder, who needs to know how to call it.</summary>
     private void ShowFormat()
     {
-        foreach (var row in _sidOnly)
-            row.IsVisible = Format == SongExportFormat.Sid;
+        _nameRow.IsVisible = Format == SongExportFormat.Sid || IsShower;
+        _authorRow.IsVisible = Format == SongExportFormat.Sid || IsShower;
+        _releasedRow.IsVisible = Format == SongExportFormat.Sid;
+        _addressRow.IsVisible = !IsShower;
 
         _about.Text = Format switch
         {
             SongExportFormat.Prg => "The load address comes first in the file. To play it from your own code, call init once and play once a frame; it does not start by itself with RUN.",
             SongExportFormat.Binary => "Nothing in the file says where it goes: load it at this address, or it will not run. Call init once and play once a frame.",
+            SongExportFormat.ShowerPrg => "Plays by itself on a C64 and shows the player's values on screen. LOAD it with ,8 and type RUN.",
+            SongExportFormat.ShowerD64 => "Plays by itself on a C64 and shows the player's values on screen. On the disk: LOAD\"*\",8 and RUN.",
             _ => "With a header, for SID players.",
         };
         _size.Text = Format switch
         {
             SongExportFormat.Prg => $"{_bytes} bytes with the player; the file is {_bytes + 2}.",
             SongExportFormat.Binary => $"{_bytes} bytes with the player.",
+            SongExportFormat.ShowerPrg or SongExportFormat.ShowerD64 => "",
             // Only a .sid says which chip it is for: its header does.
             _ => $"{_bytes} bytes with the player, for the {(_chip == ChipModel.Mos8580 ? "8580" : "6581")}.",
         };
@@ -136,6 +161,9 @@ internal sealed class SidExportWindow : Window
 
     private int? CheckAddress()
     {
+        if (IsShower)
+            return CheckShower();
+
         string? problem = SidLoadAddress.TryParse(_address.Text) is { } address
             ? SidLoadAddress.Validate(address, _bytes)
             : "Write the address in hex, as $1000.";
@@ -154,6 +182,30 @@ internal sealed class SidExportWindow : Window
         return null;
     }
 
+    /// <summary>Where the shower puts everything, which is not up to the user. The null-means-no
+    /// return is the export button's: the address itself is not used for these formats.</summary>
+    private int? CheckShower()
+    {
+        try
+        {
+            var shower = SidExporter.BuildShower(_song, SongName, SongAuthor);
+            var (first, last) = ShowerProgram.ZeroPageRange(_song.WithUnusedPatternsRemoved());
+            _range.Text = $"Loads at ${ShowerProgram.LoadAddress:X4}-${shower.End - 1:X4}: the BASIC start and the shower, then the player and song from ${shower.PlayerAddress:X4}. Zero page ${first:X2}-${last:X2}.";
+            _range.Foreground = Dim;
+            _size.Text = $"{shower.Image.Length} bytes with the shower, player and song.";
+            _export.IsEnabled = true;
+            return ShowerProgram.LoadAddress;
+        }
+        catch (SidExportException ex)
+        {
+            _range.Text = ex.Message;
+            _range.Foreground = Warning;
+            _size.Text = "";
+            _export.IsEnabled = false;
+            return null;
+        }
+    }
+
     private async Task ExportAsync()
     {
         if (CheckAddress() is not { } address)
@@ -162,7 +214,8 @@ internal sealed class SidExportWindow : Window
         var format = Format;
         var (extension, kind) = format switch
         {
-            SongExportFormat.Prg => ("prg", "C64 programs"),
+            SongExportFormat.Prg or SongExportFormat.ShowerPrg => ("prg", "C64 programs"),
+            SongExportFormat.ShowerD64 => ("d64", "Disk images"),
             SongExportFormat.Binary => ("bin", "Raw binaries"),
             _ => ("sid", "SID tunes"),
         };
@@ -191,6 +244,14 @@ internal sealed class SidExportWindow : Window
                 case SongExportFormat.Binary:
                     bytes = SidExporter.ExportBinary(_song, address);
                     break;
+                case SongExportFormat.ShowerPrg:
+                    bytes = SidExporter.ExportShowerPrg(_song, SongName, SongAuthor);
+                    EditorSettings.SidAuthor = SongAuthor;
+                    break;
+                case SongExportFormat.ShowerD64:
+                    bytes = SidExporter.ExportShowerD64(_song, SongName, SongAuthor);
+                    EditorSettings.SidAuthor = SongAuthor;
+                    break;
                 default:
                     var metadata = new SidExporter.Metadata(_name.Text ?? "", _author.Text ?? "", _released.Text ?? "");
                     bytes = SidExporter.Export(_song, metadata, _chip, address);
@@ -199,7 +260,8 @@ internal sealed class SidExportWindow : Window
             }
 
             File.WriteAllBytes(path, bytes);
-            EditorSettings.SidLoadAddress = address;
+            if (!IsShower)
+                EditorSettings.SidLoadAddress = address;
             EditorSettings.ExportFormat = format;
             Close();
         }

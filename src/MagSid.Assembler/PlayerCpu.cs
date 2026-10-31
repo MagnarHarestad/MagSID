@@ -149,6 +149,7 @@ internal sealed class PlayerCpu
             case "stx": Write(ea, _x); break;
             case "sty": Write(ea, _y); break;
             case "adc": Add(Read(ea)); break;
+            case "sbc": Add(Read(ea) ^ 0xFF); break;
             case "and": _a &= Read(ea); SetNz(_a); break;
             case "ora": _a |= Read(ea); SetNz(_a); break;
             case "eor": _a ^= Read(ea); SetNz(_a); break;
@@ -219,6 +220,15 @@ internal sealed class PlayerCpu
                 _v = (v & 0x40) != 0;
                 break;
             }
+            case "sei": case "cli": break;      // nothing interrupts this CPU
+            case "rti":
+            {
+                Pop();
+                int lo = Pop();
+                int hi = Pop();
+                _pc = (hi << 8) | lo;
+                break;
+            }
             case "dex": _x = (_x - 1) & 0xFF; SetNz(_x); break;
             case "inx": _x = (_x + 1) & 0xFF; SetNz(_x); break;
             case "iny": _y = (_y + 1) & 0xFF; SetNz(_y); break;
@@ -257,6 +267,7 @@ internal sealed class PlayerCpu
             case "jmp": return 3;
             case "jsr": return 6;
             case "rts": return 6;
+            case "rti": return 6;
             case "pha": return 3;
             case "pla": return 4;
         }

@@ -115,6 +115,8 @@ the release, funk speed and the smaller slide and vibrato - against commit `6221
 `OpcodeTableTests` had checked all 106 of them against c6510 instruction by instruction. `asr Immediate
 4B` (ALR) joined it on 2026-10-23, after c6510 assembled `asr #$12` as `4B 12`. `sec Implied 38` and
 `bit Absolute 2C` joined it on 2026-10-30, after c6510 assembled `sec` and `bit $1234` as `38` and `2C 34 12`.
+`rti`, `sei`, `cli`, `sbc Immediate` and `sbc ZeroPage` joined it on 2026-10-31 for the Musicshower, after c6510
+assembled `rti`, `sei`, `cli`, `sbc #$12` and `sbc $12` as `40`, `78`, `58`, `E9 12` and `E5 12`.
 
 ## When one of these has to change
 

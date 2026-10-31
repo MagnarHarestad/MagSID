@@ -110,3 +110,8 @@ bit Absolute 2C
 cpy Immediate C0
 txa Implied 8A
 axs Immediate CB
+rti Implied 40
+sei Implied 78
+cli Implied 58
+sbc Immediate E9
+sbc ZeroPage E5

@@ -25,7 +25,15 @@ public static class SongImageBuilder
     public static byte[] Build(Song song, int loadAddress = Core.SidLoadAddress.Default)
     {
         var asm = new Emitter6502(loadAddress);
+        Emit(asm, song);
+        return asm.Assemble();
+    }
 
+    /// <summary>The same, at the emitter's current address and with the player's shadows when given.
+    /// <paramref name="before"/> emits what goes in front, and gets the labels it may need.</summary>
+    internal static void Emit(
+        Emitter6502 asm, Song song, PlayerShadows? shadows = null, Action<SongTableLabels>? before = null)
+    {
         var features = FeaturesOf(song);
 
         var notes = NoteDictionary.Build(song);
@@ -61,6 +69,8 @@ public static class SongImageBuilder
             WtHold = instrumentTables.WavetablePool.Length - 1,
         };
 
+        before?.Invoke(tables);
+
         PlayerProgram.Emit(
             asm, tables,
             new PlayerParameters(song.Speed, order.Start1, order.Start2, order.Start3)
@@ -70,7 +80,7 @@ public static class SongImageBuilder
                     ? song.Instruments.Count(i => i.HasVibrato)
                     : null,
             },
-            features, new ZeroPageLayout(features));
+            features, new ZeroPageLayout(features), shadows);
 
         // --- song data, in the order a real build puts it ---
 
@@ -113,8 +123,6 @@ public static class SongImageBuilder
         var (freqLow, freqHigh) = notes.FrequencyTables();
         EmitWithoutEntry0(asm, tables.NoteFreqLow, freqLow);
         EmitWithoutEntry0(asm, tables.NoteFreqHigh, freqHigh);
-
-        return asm.Assemble();
     }
 
     /// <summary>A table the player never reads entry 0 of - offset 0 of a pool means "nothing

@@ -31,6 +31,11 @@ public sealed class SongTableLabels
     public required int WtHold { get; init; }
 }
 
+/// <summary>Where a Musicshower's build of the player also leaves what it otherwise keeps nowhere,
+/// all in zero page: the row's note or command per voice, at the player's stride, and the three
+/// filter registers, which cannot be read back. Null for anything else, and the code is as it was.</summary>
+public sealed record PlayerShadows(int Note, int FilterCutoff, int FilterResonance, int FilterModeVolume);
+
 /// <summary>The per-song constants baked into the player code: v_Song_Speed and the three
 /// v_ord_startN values that seed voice_orderpos.</summary>
 public sealed record PlayerParameters(int SongSpeed, int OrderStart1, int OrderStart2, int OrderStart3)
@@ -56,9 +61,8 @@ public sealed record PlayerParameters(int SongSpeed, int OrderStart1, int OrderS
 /// the command dispatch into .loopend. Where the assembly uses a library macro (move8, m_setptr_x)
 /// the expansion is written out, since that is what the macro emits.
 ///
-/// The musicshower blocks are left out. They exist for the demo's on-screen display, which a .sid
-/// export has no use for, and the export driver does not define musicshower either - so including
-/// them would produce an image the assembler never builds.
+/// The musicshower's stores are in only when <see cref="PlayerShadows"/> asks for them, which only
+/// ShowerProgram does: a .sid has no use for them, and the images c6510 built do not have them.
 ///
 /// X runs 0, 7, 14 through every per-voice routine: the arrays sit at that stride in zero page (see
 /// ZeroPageLayout) and so do the SID's voices, so one index reaches both, and Y is free for the
@@ -100,7 +104,8 @@ public static class PlayerProgram
         SongTableLabels tables,
         PlayerParameters parameters,
         PlayerFeatures features,
-        ZeroPageLayout zp)
+        ZeroPageLayout zp,
+        PlayerShadows? shadows = null)
     {
         RequireTables(tables, features);
 
@@ -121,10 +126,10 @@ public static class PlayerProgram
 
         EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder);
         EmitVoiceAutomation(asm, tables, parameters, features, zp, voiceAutomation, voiceSetFreq);
-        EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder);
-        EmitMusicPlay(asm, tables, parameters, features, zp, musicPlay, voiceAutomation, voiceTick, onBeatPlaySong);
+        EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder, shadows);
+        EmitMusicPlay(asm, tables, parameters, features, zp, musicPlay, voiceAutomation, voiceTick, onBeatPlaySong, shadows);
         EmitVoiceTick(asm, tables, features, zp, voiceTick, voiceAdvanceOrder);
-        EmitVoicePlayCurrent(asm, tables, features, zp, voiceNoteOff, voiceSetFreq);
+        EmitVoicePlayCurrent(asm, tables, features, zp, voiceNoteOff, voiceSetFreq, shadows);
         EmitVoiceNoteOff(asm, tables, zp, voiceNoteOff);
     }
 
@@ -187,9 +192,12 @@ public static class PlayerProgram
     /// <summary>A = the row's note or command, X = voice. Voice_Tick falls into this.</summary>
     private static void EmitVoicePlayCurrent(
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp,
-        Label voiceNoteOff, Label voiceSetFreq)
+        Label voiceNoteOff, Label voiceSetFreq, PlayerShadows? shadows)
     {
         var leaveSounding = asm.NewLabel(".leavesounding");
+
+        if (shadows is not null)
+            asm.Sta(MemX(shadows.Note));
 
         asm.Cmp(Imm(NoteOff));
         asm.Beq(voiceNoteOff);
@@ -497,7 +505,8 @@ public static class PlayerProgram
     }
 
     private static void EmitMusicInit(
-        Emitter6502 asm, PlayerParameters parameters, ZeroPageLayout zp, Label entry, Label voiceAdvanceOrder)
+        Emitter6502 asm, PlayerParameters parameters, ZeroPageLayout zp, Label entry, Label voiceAdvanceOrder,
+        PlayerShadows? shadows)
     {
         asm.Define(entry);
 
@@ -512,6 +521,8 @@ public static class PlayerProgram
         asm.Bpl(zeroState);
 
         asm.Move8(Imm(0x0F), Mem(SidFilterModeVolume));
+        if (shadows is not null)
+            asm.Sta(Mem(shadows.FilterModeVolume));
 
         // The first voice's list starts at 0, as cleared; the others' are baked in here.
         asm.Move8(Imm(parameters.OrderStart2), Mem(zp.VoiceOrderPos + ZeroPageLayout.VoiceStride));
@@ -526,7 +537,7 @@ public static class PlayerProgram
 
     private static void EmitMusicPlay(
         Emitter6502 asm, SongTableLabels tables, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp,
-        Label entry, Label voiceAutomation, Label voiceTick, Label onBeatPlaySong)
+        Label entry, Label voiceAutomation, Label voiceTick, Label onBeatPlaySong, PlayerShadows? shadows)
     {
         asm.Define(entry);
 
@@ -538,7 +549,7 @@ public static class PlayerProgram
         asm.Jsr(voiceAutomation);
         NextVoice(asm, nextVoice);
 
-        EmitFilterPlay(asm, tables, zp, onBeatPlaySong);
+        EmitFilterPlay(asm, tables, zp, onBeatPlaySong, shadows);
 
         // --- ONbeat.PlaySong ---
         asm.Define(onBeatPlaySong);
@@ -571,7 +582,7 @@ public static class PlayerProgram
     /// four-byte setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls
     /// through from music.play, no jsr.</summary>
     private static void EmitFilterPlay(
-        Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label onBeatPlaySong)
+        Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label onBeatPlaySong, PlayerShadows? shadows)
     {
         var filterDone = asm.NewLabel(".filterdone");
         var filterCut = asm.NewLabel(".filtercut");
@@ -585,9 +596,13 @@ public static class PlayerProgram
         asm.Inx();
         asm.Lda(MemX(tables.FltData));
         asm.Sta(Mem(SidFilterModeVolume));          // filter mode + master volume
+        if (shadows is not null)
+            asm.Sta(Mem(shadows.FilterModeVolume));
         asm.Inx();
         asm.Lda(MemX(tables.FltData));
         asm.Sta(Mem(SidFilterResonance));           // resonance + which voices are routed through
+        if (shadows is not null)
+            asm.Sta(Mem(shadows.FilterResonance));
         asm.Inx();
         asm.Lda(MemX(tables.FltData));
         asm.Sta(Mem(zp.FilterDelta));               // sweep rate, 0 to stop a running sweep
@@ -595,6 +610,8 @@ public static class PlayerProgram
         asm.Lda(MemX(tables.FltData));
         asm.Define(filterCut);
         asm.Sta(Mem(SidFilterCutoffHi));
+        if (shadows is not null)
+            asm.Sta(Mem(shadows.FilterCutoff));
         asm.Inx();
         asm.Stx(Mem(zp.FilterPos));
         asm.Define(filterDone);
@@ -614,6 +631,8 @@ public static class PlayerProgram
         asm.Define(sweepUp);
         asm.Asl();
         asm.Sta(Mem(SidFilterCutoffHi));
+        if (shadows is not null)
+            asm.Sta(Mem(shadows.FilterCutoff));
         asm.Define(sweepDone);
 
         asm.Dec(Mem(zp.SongSpeed));

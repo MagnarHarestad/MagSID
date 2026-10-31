@@ -29,17 +29,27 @@ public readonly struct Operand
     /// <summary>Set instead of <see cref="Value"/> when the target is not known yet.</summary>
     public Label? Target { get; }
 
-    private Operand(AddressMode mode, int value, Label? target = null)
+    /// <summary>For an immediate with a <see cref="Target"/>: which half of its address.</summary>
+    public bool TakesHighByte { get; }
+
+    private Operand(AddressMode mode, int value, Label? target = null, bool takesHighByte = false)
     {
         Mode = mode;
         Value = value;
         Target = target;
+        TakesHighByte = takesHighByte;
     }
 
     public static readonly Operand None = new(AddressMode.Implied, 0);
     public static readonly Operand A = new(AddressMode.Accumulator, 0);
 
     public static Operand Imm(int value) => new(AddressMode.Immediate, value & 0xFF);
+
+    /// <summary><c>#&lt;label</c>.</summary>
+    public static Operand ImmLow(Label target) => new(AddressMode.Immediate, 0, target);
+
+    /// <summary><c>#&gt;label</c>.</summary>
+    public static Operand ImmHigh(Label target) => new(AddressMode.Immediate, 0, target, takesHighByte: true);
 
     /// <summary>
     /// Picks zero page on its own when the address fits in one byte. That is not a nicety: after
