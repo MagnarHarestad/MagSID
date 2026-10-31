@@ -8,7 +8,7 @@ ALLOWED_ORIGIN = "https://magnarharestad.github.io"
 # The id "wrangler kv namespace create MESSAGES" prints. Not a secret.
 [[kv_namespaces]]
 binding = "MESSAGES"
-id = "PUT-THE-ID-HERE"
+id = "4af57c2513bb4bbabd3652b51c2acb4a"
 
 # Secrets, set with "wrangler secret put" and never in this file:
 #   TURNSTILE_SECRET  the secret key of the Turnstile widget

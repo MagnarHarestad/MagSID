@@ -279,7 +279,7 @@ fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
 
 // The message wall, at the bottom of the page. Stays hidden until these two are filled in, which
 // website-messages/README.md explains. Neither is a secret.
-const MESSAGES = { api: '', turnstileSiteKey: '' };
+const MESSAGES = { api: 'https://magsid-messages.magnarharestad.workers.dev/messages', turnstileSiteKey: '0x4AAAAAAFtbGR9gdosgJkQO' };
 
 if (MESSAGES.api && MESSAGES.turnstileSiteKey) {
   const field = document.getElementById('message-text');
