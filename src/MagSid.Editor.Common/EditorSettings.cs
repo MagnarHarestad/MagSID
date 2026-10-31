@@ -65,6 +65,7 @@ public static class EditorSettings
     private static bool? _checkForUpdates;
     private static string _sidAuthor = string.Empty;
     private static int _sidLoadAddress = MagSid.Core.SidLoadAddress.Default;
+    private static MagSid.Editor.App.Export.SongExportFormat _exportFormat;
     private static readonly Dictionary<DialogFolder, string> _folders = [];
     private static string _midiDevice = string.Empty;
     private static string _midiKnobBindings = string.Empty;
@@ -213,6 +214,25 @@ public static class EditorSettings
         }
     }
 
+    /// <summary>The format last exported to: .sid until another has been chosen.</summary>
+    public static MagSid.Editor.App.Export.SongExportFormat ExportFormat
+    {
+        get
+        {
+            EnsureLoaded();
+            return _exportFormat;
+        }
+        set
+        {
+            EnsureLoaded();
+            if (_exportFormat == value)
+                return;
+
+            _exportFormat = value;
+            Save();
+        }
+    }
+
     /// <summary>
     /// The folder <paramref name="dialog"/> was last used in; empty when it has not been, or the
     /// folder is gone. Each dialog has its own: a save dialog with no folder of its own inherits
@@ -291,6 +311,8 @@ public static class EditorSettings
                 // "never chosen" rather than "load at $0000".
                 if (stored.SidLoadAddress is > 0)
                     _sidLoadAddress = stored.SidLoadAddress.Value;
+                if (Enum.IsDefined(stored.ExportFormat))
+                    _exportFormat = stored.ExportFormat;
 
                 foreach (var (name, folder) in stored.Folders ?? [])
                 {
@@ -336,6 +358,7 @@ public static class EditorSettings
                 CheckForUpdates = _checkForUpdates,
                 SidAuthor = _sidAuthor,
                 SidLoadAddress = _sidLoadAddress,
+                ExportFormat = _exportFormat,
                 Folders = _folders.ToDictionary(f => f.Key.ToString(), f => f.Value),
                 MidiDevice = _midiDevice,
                 MidiKnobBindings = _midiKnobBindings,
@@ -356,6 +379,7 @@ public static class EditorSettings
         public bool? CheckForUpdates { get; set; }
         public string? SidAuthor { get; set; }
         public int? SidLoadAddress { get; set; }
+        public MagSid.Editor.App.Export.SongExportFormat ExportFormat { get; set; }
         public Dictionary<string, string>? Folders { get; set; }
 
         // Read from settings written before each dialog had a folder of its own; never written.

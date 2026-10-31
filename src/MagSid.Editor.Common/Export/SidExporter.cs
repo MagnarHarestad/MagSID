@@ -13,8 +13,24 @@ public sealed class SidExportException : Exception
     }
 }
 
+/// <summary>What an export writes. The numbers are stored in settings.json, so they stay as they are.</summary>
+public enum SongExportFormat
+{
+    /// <summary>A PSID tune, with its header, for SID players and HVSC.</summary>
+    Sid = 0,
+
+    /// <summary>The player and song with the C64's two-byte load address in front, for LOAD or a
+    /// demo's loader.</summary>
+    Prg = 1,
+
+    /// <summary>The player and song alone, to include in a demo or game. Assembled for one address
+    /// like the others, and nothing in the file says which.</summary>
+    Binary = 2,
+}
+
 /// <summary>
-/// Builds a playable PSID (.sid) file out of the song currently open in the editor.
+/// Builds a playable PSID (.sid) file out of the song currently open in the editor, or the same
+/// image as a .prg or raw binary.
 ///
 /// The image is built in C# by <see cref="SongImageBuilder"/>, so a copy of the editor exports on
 /// its own - it needs no assembler, no include library and no player sources beside it, which a
@@ -38,7 +54,34 @@ public static class SidExporter
     public sealed record Metadata(string Name, string Author, string Released);
 
     public static byte[] Export(
-        Song song, Metadata metadata, ChipModel chipModel, int loadAddress = SidLoadAddress.Default)
+        Song song, Metadata metadata, ChipModel chipModel, int loadAddress = SidLoadAddress.Default) =>
+        BuildPsid(BuildImage(song, loadAddress), metadata, chipModel, loadAddress);
+
+    /// <summary>The image with its load address in front, low byte first: what the C64 calls a
+    /// program file. It holds entry points to call, not something to RUN.</summary>
+    public static byte[] ExportPrg(Song song, int loadAddress = SidLoadAddress.Default)
+    {
+        byte[] image = BuildImage(song, loadAddress);
+        var result = new byte[image.Length + 2];
+        result[0] = (byte)loadAddress;
+        result[1] = (byte)(loadAddress >> 8);
+        image.CopyTo(result, 2);
+        return result;
+    }
+
+    /// <summary>The image alone, which only runs at the address it was built for.</summary>
+    public static byte[] ExportBinary(Song song, int loadAddress = SidLoadAddress.Default) =>
+        BuildImage(song, loadAddress);
+
+    /// <summary>The zero-page bytes the exported player uses, first and last, which a demo or game
+    /// around it has to leave alone.</summary>
+    public static (int First, int Last) ZeroPageRange(Song song)
+    {
+        var layout = new ZeroPageLayout(SongImageBuilder.FeaturesOf(song.WithUnusedPatternsRemoved()));
+        return (layout.Base, layout.End - 1);
+    }
+
+    private static byte[] BuildImage(Song song, int loadAddress)
     {
         // Patterns no channel plays any more are pruned on the way out: dropping a song-order entry
         // deliberately leaves its pattern in the pool so typing the number again brings the data
@@ -59,13 +102,13 @@ public static class SidExporter
             throw new SidExportException(ex.Message);
         }
 
-        // Re-checked here and not only in the dialog: Export is callable on its own, and a tune that
-        // runs into I/O or off the top of memory is worth refusing rather than writing a .sid that
+        // Re-checked here and not only in the dialog: this is callable on its own, and a tune that
+        // runs into I/O or off the top of memory is worth refusing rather than writing a file that
         // cannot play.
         if (SidLoadAddress.Validate(loadAddress, memoryImage.Length) is { } problem)
             throw new SidExportException(problem);
 
-        return BuildPsid(memoryImage, metadata, chipModel, loadAddress);
+        return memoryImage;
     }
 
     private static byte[] BuildPsid(byte[] memoryImage, Metadata metadata, ChipModel chipModel, int loadAddress)

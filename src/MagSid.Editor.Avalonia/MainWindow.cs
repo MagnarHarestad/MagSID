@@ -576,7 +576,7 @@ public sealed partial class MainWindow : Window
                 Item("Load Instrument...", () => _ = LoadInstrumentsAsync()),
                 Item("Save Instrument...", () => _ = SaveInstrumentAsync()),
                 new Separator(),
-                Item("Export to .sid...", () => _ = new SidExportWindow(_session.Song, _session.Name ?? "Untitled", _chipModel).ShowDialog(this), "F9"),
+                Item("Export...", () => _ = new SidExportWindow(_session.Song, _session.Name ?? "Untitled", _chipModel).ShowDialog(this), "F9"),
                 Item("Load and Play .sid...", () => new SidPlayerWindow().Show()),
                 new Separator(),
                 // GoatTracker's forms in the instrument editor: $80+ notes, 9x filter modes.

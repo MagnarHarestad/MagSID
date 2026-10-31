@@ -33,7 +33,7 @@ internal sealed class AboutWindow : Window
                 "Menu",
                 "  Menu              About, Undo, Redo, New, Open, Import MIDI, Import SID,\n" +
                 "                    Save, Save As, Load Instrument, Save Instrument,\n" +
-                "                    Export to .sid, Load and Play .sid, Show High Hex-Values,\n" +
+                "                    Export, Load and Play .sid, Show High Hex-Values,\n" +
                 "                    Swap Spacebar Behavior, Unroll Loops, Check for Updates,\n" +
                 "                    Exit\n" +
                 "  Tools             Signal Path: frame-by-frame trace of one instrument;\n" +

@@ -59,7 +59,7 @@ public static class AboutDocument
              "  F4          Stop\n" +
              "  Space       Toggle Edit / Jam  (or Play / Stop, see below)\n" +
              "  F5          Toggle Edit / Jam\n" +
-             "  F9          Export to .sid\n" +
+             "  F9          Export\n" +
              "  F10         Open\n" +
              "  F11         Save As\n" +
              "  Ctrl+Z / Y  Undo / Redo (200 steps)\n\n");
@@ -360,8 +360,10 @@ public static class AboutDocument
              "  Carrier waveform     Auto, or pin one waveform\n\n");
 
         Heading("Export and the SID player");
-        Body("Export to .sid builds a PSID file with the real MAGSIDv7 player, at the load " +
-             "address you choose. Patterns no channel plays are left out.\n\n" +
+        Body("Export builds a PSID .sid file with the real MAGSIDv7 player, at the load address you " +
+             "choose, or the same player and song as a .prg or a raw .bin to use in your own code. " +
+             "Call init once and play once a frame: the dialog gives both addresses and the zero " +
+             "page the player uses. Patterns no channel plays are left out.\n\n" +
              "Load and Play .sid opens the SID player: spectrum, one scope per voice, and the " +
              "played / total time.\n\n");
         Mono("  Space          Pause / continue\n" +

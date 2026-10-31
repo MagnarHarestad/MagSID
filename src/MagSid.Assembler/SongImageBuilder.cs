@@ -13,17 +13,20 @@ namespace MagSid.Assembler;
 /// </summary>
 public static class SongImageBuilder
 {
+    /// <summary>Which of the player's optional parts this song assembles in.</summary>
+    public static PlayerFeatures FeaturesOf(Song song) => new(
+        Vibrato: song.Instruments.Any(i => i.HasVibrato),
+        Slide: Core.SongSizeCalculator.UsesSlide(song),
+        SoftHardRestart: song.Instruments.Any(i => i.SoftHardRestart),
+        Funk: song.HasFunk);
+
     /// <summary>Emits at <paramref name="loadAddress"/>. Nothing is position-fixed - the player has
     /// no alignment requirements and no baked-in addresses - so this is the whole of relocation.</summary>
     public static byte[] Build(Song song, int loadAddress = Core.SidLoadAddress.Default)
     {
         var asm = new Emitter6502(loadAddress);
 
-        var features = new PlayerFeatures(
-            Vibrato: song.Instruments.Any(i => i.HasVibrato),
-            Slide: Core.SongSizeCalculator.UsesSlide(song),
-            SoftHardRestart: song.Instruments.Any(i => i.SoftHardRestart),
-            Funk: song.HasFunk);
+        var features = FeaturesOf(song);
 
         var notes = NoteDictionary.Build(song);
         var instrumentTables = InstrumentTables.Build(song, notes);
