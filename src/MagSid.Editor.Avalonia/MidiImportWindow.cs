@@ -30,6 +30,7 @@ internal sealed class MidiImportWindow : Window
     private readonly MidiSong _midi;
     private readonly IReadOnlyList<MidiSource> _sources;
     private readonly Action<Instrument, NoteName>? _audition;
+    private readonly Action? _auditionEnded;
     private readonly ComboBox[] _source = new ComboBox[Song.ChannelCount];
     private readonly ComboBox[] _role = new ComboBox[Song.ChannelCount];
     private readonly ComboBox[] _octave = new ComboBox[Song.ChannelCount];
@@ -54,10 +55,11 @@ internal sealed class MidiImportWindow : Window
     /// <summary>The song as the report describes it - set while the choices make one.</summary>
     public MidiImportResult? Result { get; private set; }
 
-    public MidiImportWindow(MidiSong midi, string fileName, Action<Instrument, NoteName>? audition)
+    public MidiImportWindow(MidiSong midi, string fileName, Action<Instrument, NoteName>? audition, Action? auditionEnded)
     {
         _midi = midi;
         _audition = audition;
+        _auditionEnded = auditionEnded;
         _sources = midi.Sources();
 
         Title = "Import MIDI";
@@ -344,6 +346,7 @@ internal sealed class MidiImportWindow : Window
             Hint = $"Click to hear  ·  double-click or + to play voice {voice + 1} on it",
         };
         var flyout = new Flyout { Content = picker, Placement = PlacementMode.BottomEdgeAlignedLeft };
+        flyout.Closed += (_, _) => _auditionEnded?.Invoke();
 
         bool low = Role(voice) is VoiceRole.Bass or VoiceRole.DrumsAndBass;
         picker.Auditioned += sound => _audition?.Invoke(sound.Instrument,

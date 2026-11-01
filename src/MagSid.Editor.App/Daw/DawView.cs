@@ -138,6 +138,9 @@ internal sealed class DawView : Panel
     /// <summary>A sound of the bank to be heard before it is taken, on the note given.</summary>
     public event Action<MagSid.Core.Model.Instrument, MagSid.Core.Model.NoteName>? SoundAuditionRequested;
 
+    /// <summary>The sound bank's cards closed: a sound still playing has no more to say.</summary>
+    public event Action? SoundAuditionEnded;
+
     public event Action<Instrument>? InstrumentCopyRequested;
 
     public event Action<Instrument>? InstrumentDeleteRequested;
@@ -454,7 +457,11 @@ internal sealed class DawView : Panel
         var host = new ToolStripControlHost(picker) { Margin = Padding.Empty, Padding = Padding.Empty, AutoSize = false, Size = picker.Size };
         var drop = new ToolStripDropDown { Padding = Padding.Empty, BackColor = DawPalette.Panel };
         drop.Items.Add(host);
-        drop.Closed += (_, _) => BeginInvoke(drop.Dispose);
+        drop.Closed += (_, _) =>
+        {
+            SoundAuditionEnded?.Invoke();
+            BeginInvoke(drop.Dispose);
+        };
 
         picker.Auditioned += sound => SoundAuditionRequested?.Invoke(sound.Instrument,
             MagSid.Core.Model.NoteName.Parse(sound.Key is "Bass" or "SynthBass" or "KickBass" ? "C-2" : "C-4"));

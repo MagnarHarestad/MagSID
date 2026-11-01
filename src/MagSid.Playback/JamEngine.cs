@@ -49,6 +49,16 @@ public sealed class JamEngine : IWaveProvider, IDisposable
     // SilenceAll, same as _slotNotes/_slotAge.
     private readonly bool[] _slotPendingRelease = new bool[VoiceCount];
 
+    // The sound bank's audition, Do Re Mi up to the next Do. It runs on the frame clock, so its
+    // rhythm is exact whatever the UI thread is busy with. Read and written only under _chip.
+    private static readonly int[] ScaleSemitones = [0, 2, 4, 5, 7, 9, 11, 12];
+    private const int ScaleNoteFrames = 12;
+    private const int ScaleGateFrames = 9;
+    private Instrument? _scaleInstrument;
+    private int _scaleFirst;
+    private int _scaleFrame;
+    private NoteName? _scaleHeld;
+
     private readonly double _cyclesPerFrame = ClockFrequency / FrameRate;
     private double _totalCyclesClocked;
     private double _nextFrameBoundaryCycles;
@@ -98,7 +108,7 @@ public sealed class JamEngine : IWaveProvider, IDisposable
     /// stays held. Retriggers in place if this exact note is already sounding (fast repeats of
     /// the same key), otherwise takes a free voice, or steals whichever held note is oldest if
     /// all three are already busy - the chip only has three, the same limit real hardware
-    /// jamming a chord runs into.</summary>
+    /// jamming a chord runs into. A scale still playing stops: the keys take over.</summary>
     public void NoteOn(NoteName note, Instrument instrument)
     {
         if (_disposed)
@@ -106,6 +116,91 @@ public sealed class JamEngine : IWaveProvider, IDisposable
             return;
         }
 
+        lock (_chip)
+        {
+            StopScale();
+            Sound(note, instrument);
+        }
+    }
+
+    /// <summary>Plays a major scale up from <paramref name="first"/> on the instrument, note after
+    /// note, each with its full program. Takes over from a scale already playing, and starts on a
+    /// clean filter so the sound is heard as it is.</summary>
+    public void PlayScale(NoteName first, Instrument instrument)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        lock (_chip)
+        {
+            StopScale();
+            ResetFilter();
+            _scaleInstrument = instrument;
+            _scaleFirst = IndexOfNote(first);
+            _scaleFrame = 0;
+        }
+    }
+
+    /// <summary>Ends a scale where it is: the note sounding is released, no further one starts.</summary>
+    public void StopScale()
+    {
+        lock (_chip)
+        {
+            _scaleInstrument = null;
+            if (_scaleHeld is { } held)
+            {
+                _scaleHeld = null;
+                NoteOff(held);
+            }
+        }
+    }
+
+    private static int IndexOfNote(NoteName note)
+    {
+        var notes = NoteName.AllNotes;
+        for (int i = 0; i < notes.Count; i++)
+        {
+            if (notes[i] == note)
+            {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private void StepScale()
+    {
+        if (_scaleInstrument is not { } instrument)
+        {
+            return;
+        }
+
+        int within = _scaleFrame % ScaleNoteFrames;
+        int step = _scaleFrame / ScaleNoteFrames;
+        if (within == ScaleGateFrames && _scaleHeld is { } held)
+        {
+            _scaleHeld = null;
+            NoteOff(held);
+        }
+        else if (within == 0)
+        {
+            if (step == ScaleSemitones.Length)
+            {
+                _scaleInstrument = null;
+                return;
+            }
+
+            var note = NoteName.AllNotes[Math.Min(_scaleFirst + ScaleSemitones[step], NoteName.AllNotes.Count - 1)];
+            Sound(note, instrument);
+            _scaleHeld = note;
+        }
+        _scaleFrame++;
+    }
+
+    private void Sound(NoteName note, Instrument instrument)
+    {
         lock (_chip)
         {
             int slot = Array.IndexOf(_slotNotes, note);
@@ -191,6 +286,8 @@ public sealed class JamEngine : IWaveProvider, IDisposable
     {
         lock (_chip)
         {
+            _scaleInstrument = null;
+            _scaleHeld = null;
             for (int i = 0; i < VoiceCount; i++)
             {
                 _voices[i].Silence(RegisterBase(i), _write);
@@ -233,6 +330,7 @@ public sealed class JamEngine : IWaveProvider, IDisposable
     {
         lock (Instrument.ProgramLock)
         {
+            StepScale();
             for (int i = 0; i < VoiceCount; i++)
             {
                 _voices[i].Automate(RegisterBase(i), _write);

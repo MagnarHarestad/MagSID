@@ -38,11 +38,13 @@ public sealed class MidiImportForm : Form
 
     /// <summary>Plays a sound of the bank before it is chosen - the editor's own audition.</summary>
     private readonly Action<Instrument, NoteName>? _audition;
+    private readonly Action? _auditionEnded;
 
-    public MidiImportForm(MidiSong midi, string fileName, Action<Instrument, NoteName>? audition = null)
+    public MidiImportForm(MidiSong midi, string fileName, Action<Instrument, NoteName>? audition = null, Action? auditionEnded = null)
     {
         _midi = midi;
         _audition = audition;
+        _auditionEnded = auditionEnded;
         _sources = midi.Sources();
 
         Text = "Import MIDI";
@@ -319,7 +321,11 @@ public sealed class MidiImportForm : Form
         var host = new ToolStripControlHost(picker) { Margin = Padding.Empty, Padding = Padding.Empty, AutoSize = false, Size = picker.Size };
         var drop = new ToolStripDropDown { Padding = Padding.Empty, BackColor = Daw.DawPalette.Panel };
         drop.Items.Add(host);
-        drop.Closed += (_, _) => BeginInvoke(drop.Dispose);
+        drop.Closed += (_, _) =>
+        {
+            _auditionEnded?.Invoke();
+            BeginInvoke(drop.Dispose);
+        };
 
         bool low = Role(voice) is VoiceRole.Bass or VoiceRole.DrumsAndBass;
         picker.Auditioned += sound => _audition?.Invoke(sound.Instrument,

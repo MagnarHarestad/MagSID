@@ -442,4 +442,178 @@ public class JamEngineTests
 
         Assert.Contains(writes, w => w.Offset == 0); // voice 0's frequency written again
     }
+
+    private const int ScaleNoteFrames = 12;
+    private static readonly string[] ScaleNotes = ["C-4", "D-4", "E-4", "F-4", "G-4", "A-4", "B-4", "C-5"];
+
+    /// <summary>What the last pair of frequency writes on any voice says, or -1 before there is one.</summary>
+    private static int LastFrequency(List<(int Offset, int Value)> writes)
+    {
+        int lo = -1, hi = -1;
+        foreach (var (offset, value) in writes)
+        {
+            if (offset is 0 or 7 or 14) lo = value;
+            if (offset is 1 or 8 or 15) hi = value;
+        }
+        return lo < 0 || hi < 0 ? -1 : (hi << 8) | lo;
+    }
+
+    private static int Frequency(string note)
+    {
+        var (lo, hi) = NotePalTable.GetFreq(Note(note));
+        return (hi << 8) | lo;
+    }
+
+    private static bool GateOn(List<(int Offset, int Value)> writes, int control) =>
+        writes.LastOrDefault(w => w.Offset == control).Value % 2 == 1;
+
+    [Fact]
+    public void A_scale_plays_Do_to_Do_a_note_at_a_time_with_a_gap_before_each_next_note()
+    {
+        var (engine, writes) = Build();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1));
+
+        for (int step = 0; step < ScaleNotes.Length; step++)
+        {
+            for (int frame = 0; frame < ScaleNoteFrames; frame++)
+            {
+                engine.Frame();
+                if (frame == 0)
+                {
+                    Assert.Equal(Frequency(ScaleNotes[step]), LastFrequency(writes));
+                    Assert.True(GateOn(writes, 4), $"step {step} should sound");
+                }
+                if (frame == ScaleNoteFrames - 1)
+                {
+                    Assert.Equal(Frequency(ScaleNotes[step]), LastFrequency(writes));
+                    Assert.False(GateOn(writes, 4), $"step {step} should have let go before the next");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void A_scale_ends_by_itself_after_its_eight_notes()
+    {
+        var (engine, writes) = Build();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1));
+        for (int frame = 0; frame < ScaleNotes.Length * ScaleNoteFrames; frame++)
+            engine.Frame();
+
+        writes.Clear();
+        for (int frame = 0; frame < 200; frame++)
+            engine.Frame();
+
+        Assert.DoesNotContain(writes, w => w.Offset is 4 or 11 or 18 && w.Value % 2 == 1);
+        Assert.DoesNotContain(writes, w => w.Offset is 0 or 7 or 14 or 1 or 8 or 15);
+    }
+
+    [Fact]
+    public void A_new_scale_takes_over_from_the_one_playing()
+    {
+        var (engine, writes) = Build();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1));
+        for (int frame = 0; frame < ScaleNoteFrames + 3; frame++)
+            engine.Frame();
+
+        engine.PlayScale(Note("C-2"), MakeInstrument(2));
+        engine.Frame();
+        Assert.Equal(Frequency("C-2"), LastFrequency(writes));
+
+        for (int frame = 1; frame < ScaleNoteFrames + 1; frame++)
+            engine.Frame();
+        Assert.Equal(Frequency("D-2"), LastFrequency(writes));
+    }
+
+    [Fact]
+    public void Stopping_a_scale_lets_go_of_its_note_and_starts_no_more()
+    {
+        var (engine, writes) = Build();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1));
+        for (int frame = 0; frame < 3; frame++)
+            engine.Frame();
+        Assert.True(GateOn(writes, 4));
+
+        engine.StopScale();
+        Assert.False(GateOn(writes, 4));
+
+        writes.Clear();
+        for (int frame = 0; frame < 3 * ScaleNoteFrames; frame++)
+            engine.Frame();
+        Assert.DoesNotContain(writes, w => w.Offset is 4 or 11 or 18 && w.Value % 2 == 1);
+    }
+
+    [Fact]
+    public void A_key_played_during_a_scale_takes_over()
+    {
+        var (engine, writes) = Build();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1));
+        for (int frame = 0; frame < 3; frame++)
+            engine.Frame();
+
+        engine.NoteOn(Note("A-3"), MakeInstrument(2));
+        for (int frame = 0; frame < 3 * ScaleNoteFrames; frame++)
+            engine.Frame();
+
+        Assert.Equal(Frequency("A-3"), LastFrequency(writes));
+    }
+
+    /// <summary>Notes in a program that ends on LOOP or HOLD are absolute by design, so these
+    /// repeat rather than climb; every other sound of the bank walks up the scale.</summary>
+    [Fact]
+    public void Every_sound_of_the_bank_climbs_unless_its_notes_are_fixed_and_all_let_go()
+    {
+        string[] fixedNotes = ["ArpMinor", "ArpMinor2", "ArpMinor3", "ArpMajor", "ArpMajor2", "ArpMajor3", "Kick", "Snare", "Snare2", "Snare3"];
+        foreach (var sound in MagSid.Core.Midi.GmBank.BuiltIn.All)
+        {
+            var (engine, writes) = Build();
+            engine.PlayScale(Note("C-4"), sound.Instrument);
+
+            var heard = new List<int>();
+            for (int frame = 0; frame < ScaleNotes.Length * ScaleNoteFrames; frame++)
+            {
+                engine.Frame();
+                if (frame % ScaleNoteFrames == 8)
+                    heard.Add(LastFrequency(writes));
+            }
+
+            if (fixedNotes.Contains(sound.Key))
+                Assert.True(heard.Distinct().Count() == 1, $"{sound.Key}: {string.Join(' ', heard)}");
+            else
+                Assert.True(heard.Zip(heard.Skip(1)).All(p => p.Second > p.First), $"{sound.Key}: {string.Join(' ', heard)}");
+
+            for (int frame = 0; frame < 100; frame++)
+                engine.Frame();
+            foreach (int control in new[] { 4, 11, 18 })
+                Assert.False(GateOn(writes, control), $"{sound.Key} still holds voice register {control}");
+        }
+    }
+
+    /// <summary>The real chip, not the register log: the pitch heard rises step by step.</summary>
+    [Fact]
+    public void The_scale_rises_in_the_rendered_sound()
+    {
+        const int samplesPerStep = 44100 * ScaleNoteFrames / 50;
+        using var engine = new JamEngine();
+        engine.PlayScale(Note("C-4"), MakeInstrument(1, waveform: 0x11, ad: 0x00, sr: 0xf0));
+
+        var crossings = new List<int>();
+        var buffer = new byte[samplesPerStep * 2];
+        for (int step = 0; step < ScaleNotes.Length; step++)
+        {
+            Assert.Equal(buffer.Length, engine.Read(buffer, 0, buffer.Length));
+            var samples = new short[samplesPerStep];
+            Buffer.BlockCopy(buffer, 0, samples, 0, buffer.Length);
+
+            // The middle of the note: past the frame the step began on, before its release.
+            double mean = samples.Skip(samplesPerStep / 4).Take(samplesPerStep / 2).Average(v => (double)v);
+            int count = 0;
+            for (int i = samplesPerStep / 4 + 1; i < samplesPerStep * 3 / 4; i++)
+                if (samples[i - 1] < mean && samples[i] >= mean)
+                    count++;
+            crossings.Add(count);
+        }
+
+        Assert.True(crossings.Zip(crossings.Skip(1)).All(p => p.Second > p.First), string.Join(' ', crossings));
+    }
 }

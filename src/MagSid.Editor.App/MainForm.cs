@@ -676,6 +676,7 @@ public sealed class MainForm : Form
         _dawView.InstrumentSoundChangeRequested += ChangeSoundFromBank;
         _dawView.InstrumentLoadRequested += DoLoadInstrument;
         _dawView.SoundAuditionRequested += AuditionSound;
+        _dawView.SoundAuditionEnded += () => _jamEngine?.StopScale();
         _dawView.InstrumentCopyRequested += instrument => _session.CopyInstrument(instrument);
         _dawView.InstrumentDeleteRequested += instrument => _session.DeleteInstrument(instrument);
 
@@ -2026,7 +2027,7 @@ public sealed class MainForm : Form
             return;
         }
 
-        using var dialog = new MidiImportForm(midi, Path.GetFileName(open.FileName), AuditionSound);
+        using var dialog = new MidiImportForm(midi, Path.GetFileName(open.FileName), AuditionSound, () => _jamEngine?.StopScale());
         if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is not { } result)
             return;
 
@@ -2410,31 +2411,21 @@ public sealed class MainForm : Form
         ShowNotice($"Instrument {target.Number:00} is now {target.Name} from the sound bank ({sound.Origin})");
     }
 
-    /// <summary>Plays a sound that is not in the song yet - the sound bank's cards - for half a
-    /// second, on the note audition's own device.</summary>
-    private void AuditionSound(Instrument instrument, NoteName note)
+    /// <summary>Plays a sound that is not in the song yet - the sound bank's cards - as a scale up
+    /// from the note, on the note audition's own device.</summary>
+    private void AuditionSound(Instrument instrument, NoteName first)
     {
         try
         {
             _jamEngine ??= new JamEngine(_chipModel);
             _jamEngine.Start();
-            _jamEngine.ResetFilter();
-            _jamEngine.NoteOn(note, instrument);
+            _jamEngine.PlayScale(first, instrument);
         }
         catch (Exception ex) when (ex is InvalidOperationException or NAudio.MmException)
         {
             _jamEngine?.Dispose();
             _jamEngine = null;
-            return;
         }
-
-        var release = new System.Windows.Forms.Timer { Interval = 500 };
-        release.Tick += (_, _) =>
-        {
-            release.Dispose();
-            _jamEngine?.NoteOff(note);
-        };
-        release.Start();
     }
 
     private void SelectAddedInstrument(int number)

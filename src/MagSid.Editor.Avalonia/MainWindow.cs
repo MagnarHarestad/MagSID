@@ -728,6 +728,7 @@ public sealed partial class MainWindow : Window
         _daw.InstrumentSoundChangeRequested += ChangeSound;
         _daw.InstrumentLoadRequested += () => _ = LoadInstrumentsAsync();
         _daw.SoundAuditionRequested += AuditionSound;
+        _daw.SoundAuditionEnded += () => _jam?.StopScale();
         _daw.InstrumentCopyRequested += instrument => _session.CopyInstrument(instrument);
         _daw.InstrumentDeleteRequested += instrument => _session.DeleteInstrument(instrument);
 
@@ -1235,30 +1236,21 @@ public sealed partial class MainWindow : Window
         return copy;
     }
 
-    /// <summary>Plays a sound that is not in the song yet - the sound bank's cards - for half a second.</summary>
-    private void AuditionSound(Instrument instrument, NoteName note)
+    /// <summary>Plays a sound that is not in the song yet - the sound bank's cards - as a scale up
+    /// from the note.</summary>
+    private void AuditionSound(Instrument instrument, NoteName first)
     {
         try
         {
             _jam ??= new JamEngine(_chipModel);
             _jam.Start();
-            _jam.ResetFilter();
-            _jam.NoteOn(note, instrument);
+            _jam.PlayScale(first, instrument);
         }
         catch (Exception ex) when (ex is InvalidOperationException or PortAudioSharp.PortAudioException)
         {
             _jam?.Dispose();
             _jam = null;
-            return;
         }
-
-        var release = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-        release.Tick += (_, _) =>
-        {
-            release.Stop();
-            _jam?.NoteOff(note);
-        };
-        release.Start();
     }
 
     private void StartFromBeginning()
@@ -1855,7 +1847,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await new MidiImportWindow(midi, Path.GetFileName(path), AuditionSound).ShowDialog<MidiImportResult?>(this);
+        var result = await new MidiImportWindow(midi, Path.GetFileName(path), AuditionSound, () => _jam?.StopScale()).ShowDialog<MidiImportResult?>(this);
         if (result is null)
             return;
 
