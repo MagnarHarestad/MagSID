@@ -231,21 +231,24 @@ public sealed class JamEngine : IWaveProvider, IDisposable
     /// calls it in real use, already holding <see cref="_chip"/> for the whole buffer.</summary>
     public void Frame()
     {
-        for (int i = 0; i < VoiceCount; i++)
+        lock (Instrument.ProgramLock)
         {
-            _voices[i].Automate(RegisterBase(i), _write);
-
-            // Finishes a release NoteOff had to defer (see NoteOff's own comment) the moment both
-            // of this voice's programs actually complete - checked after Automate so a completion
-            // that happens on THIS frame is caught immediately rather than one frame late.
-            if (_slotPendingRelease[i] && _voices[i].HaveProgramsCompleted)
+            for (int i = 0; i < VoiceCount; i++)
             {
-                _voices[i].ReleaseNote(RegisterBase(i), _write);
-                _slotNotes[i] = null;
-                _slotPendingRelease[i] = false;
+                _voices[i].Automate(RegisterBase(i), _write);
+
+                // Finishes a release NoteOff had to defer (see NoteOff's own comment) the moment both
+                // of this voice's programs actually complete - checked after Automate so a completion
+                // that happens on THIS frame is caught immediately rather than one frame late.
+                if (_slotPendingRelease[i] && _voices[i].HaveProgramsCompleted)
+                {
+                    _voices[i].ReleaseNote(RegisterBase(i), _write);
+                    _slotNotes[i] = null;
+                    _slotPendingRelease[i] = false;
+                }
             }
+            _filter.StepFrame(_write);
         }
-        _filter.StepFrame(_write);
     }
 
     public int Read(byte[] buffer, int offset, int count)

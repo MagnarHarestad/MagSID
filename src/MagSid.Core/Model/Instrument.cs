@@ -17,6 +17,10 @@ public sealed class Instrument
     /// pulse waveform.</summary>
     public const int DefaultPulseWidth = 8;
 
+    /// <summary>Held while a list of an instrument's changes, and while a frame of playback reads
+    /// them: the editor changes the very instrument the audio thread is playing, as it is typed.</summary>
+    public static readonly object ProgramLock = new();
+
     public int Number { get; set; }
 
     /// <summary>Optional label, purely for the editor's own benefit - never touches a SID

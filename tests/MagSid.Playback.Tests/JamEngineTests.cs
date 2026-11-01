@@ -89,6 +89,55 @@ public class JamEngineTests
         Assert.Contains((4, 0x41), writes);
     }
 
+    /// <summary>The audio thread reads the instrument the editor is rewriting as it is typed. Without
+    /// the lock a frame finds a list empty between its length and its contents.</summary>
+    [Fact]
+    public void Rewriting_the_programs_while_a_note_plays_never_fails_a_frame()
+    {
+        var (engine, _) = Build();
+        var instrument = MakeInstrument(1);
+        instrument.Wavetable.AddRange(Enumerable.Repeat((byte)0x41, 200));
+        instrument.Arpeggio.AddRange(Enumerable.Repeat(Note("C-4"), 200));
+
+        using var stop = new CancellationTokenSource();
+        Exception? failure = null;
+        var audio = new Thread(() =>
+        {
+            try
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    engine.NoteOn(Note("C-4"), instrument);
+                    for (int frame = 0; frame < 150 && !stop.IsCancellationRequested; frame++)
+                        engine.Frame();
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        audio.Start();
+
+        var waves = Enumerable.Repeat((byte)0x21, 200).ToArray();
+        var notes = Enumerable.Repeat(Note("E-4"), 200).ToArray();
+        var until = DateTime.UtcNow.AddSeconds(2);
+        while (failure is null && DateTime.UtcNow < until)
+        {
+            lock (Instrument.ProgramLock)
+            {
+                instrument.Wavetable.Clear();
+                instrument.Wavetable.AddRange(waves);
+                instrument.Arpeggio.Clear();
+                instrument.Arpeggio.AddRange(notes);
+            }
+        }
+
+        stop.Cancel();
+        audio.Join();
+        Assert.Null(failure);
+    }
+
     /// <summary>The editor stores these as they are typed, to be heard on the sounding note.</summary>
     [Fact]
     public void A_changed_attack_decay_and_sustain_release_reach_the_sid_on_the_next_frame()

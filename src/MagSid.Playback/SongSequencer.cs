@@ -463,6 +463,12 @@ public sealed class SongSequencer
 
     public bool Frame()
     {
+        lock (Instrument.ProgramLock)
+            return PlayFrame();
+    }
+
+    private bool PlayFrame()
+    {
         _frame++;
         bool announce = _announceRestored;
         _announceRestored = false;

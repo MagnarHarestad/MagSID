@@ -199,8 +199,8 @@ internal sealed class InstrumentEditorView : DockPanel
 
         foreach (var box in new[] { _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
             box.LostFocus += (_, _) => Commit();
-        _attackDecay.TextChanged += (_, _) => StoreAsTyped(_attackDecay, i => i.AttackDecay, (i, value) => i.AttackDecay = value);
-        _sustainRelease.TextChanged += (_, _) => StoreAsTyped(_sustainRelease, i => i.SustainRelease, (i, value) => i.SustainRelease = value);
+        foreach (var box in new[] { _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
+            CommitAsTyped(box, IsWholeHexByte, Commit);
         _pulseContinuous.IsCheckedChanged += (_, _) => Commit();
         foreach (var segment in new[] { _fullHardRestart, _softHardRestart, _noHardRestart })
         {
@@ -434,11 +434,22 @@ internal sealed class InstrumentEditorView : DockPanel
 
         foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Sweep, row.Mode })
             CommitOnLeavingOrEnter(box, Commit);
-        CommitOnLeavingOrEnter(row.Hex, () =>
+        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Mode })
+            CommitAsTyped(box, IsWholeHexByte, Commit);
+        CommitAsTyped(row.Sweep, IsSweepRate, Commit);
+
+        void CommitHex()
         {
             // A value that is no note keeps its message up, which Commit would clear.
             if (_syncing || SyncNoteFromHex(row))
                 Commit();
+        }
+
+        CommitOnLeavingOrEnter(row.Hex, CommitHex);
+        CommitAsTyped(row.Hex, IsWholeHexByte, () =>
+        {
+            CommitHex();
+            row.Hex.CaretIndex = (row.Hex.Text ?? "").Length;   // the note may have rewritten it
         });
         row.Note.SelectionChanged += (_, _) =>
         {
@@ -549,6 +560,24 @@ internal sealed class InstrumentEditorView : DockPanel
         _syncing = false;
     }
 
+    /// <summary>Takes a value the moment it is whole, to hear it while the song plays, and leaves one
+    /// still being typed for leaving the field or Enter. Only from the focused field: TextChanged comes
+    /// after the event that caused it, so it also arrives after <see cref="Load"/> has filled the
+    /// fields, which is no edit.</summary>
+    private void CommitAsTyped(TextBox box, Func<string, bool> whole, Action commit)
+    {
+        box.TextChanged += (_, _) =>
+        {
+            if (!_loading && !_syncing && box.IsFocused && whole((box.Text ?? "").Trim()))
+                commit();
+        };
+    }
+
+    private static bool IsWholeHexByte(string text) => text.Length == 2 && text[0] != '$' && TryHex(text, out _);
+
+    private static bool IsSweepRate(string text) =>
+        int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int rate) && rate is >= -128 and <= 127;
+
     /// <summary>Enter takes what is typed the same way moving to another field does.</summary>
     private static void CommitOnLeavingOrEnter(TextBox box, Action commit)
     {
@@ -614,25 +643,6 @@ internal sealed class InstrumentEditorView : DockPanel
     }
 
     // ---------------------------------------------------------------- commit
-
-    /// <summary>A value that takes effect as soon as its second digit is typed, to hear the change
-    /// while the song plays: the player writes it to the SID every frame. Only this byte, and not a
-    /// whole <see cref="Commit"/>, which rebuilds the programs the audio thread is reading.
-    ///
-    /// Compared with what is stored because TextChanged comes after the event that caused it, so it
-    /// also arrives after <see cref="Load"/> has shown another instrument, which is no edit.</summary>
-    private void StoreAsTyped(TextBox box, Func<Instrument, byte> stored, Action<Instrument, byte> store)
-    {
-        if (_loading || _instrument is not { } instrument)
-            return;
-
-        string text = (box.Text ?? "").Trim();
-        if (text.Length != 2 || !TryHex(text, out byte value) || value == stored(instrument))
-            return;
-
-        store(instrument, value);
-        Edited?.Invoke();
-    }
 
     private void Commit()
     {
@@ -700,21 +710,27 @@ internal sealed class InstrumentEditorView : DockPanel
     {
         var (waveform, waves, notes, ending) = ReadWavetable(instrument);
 
-        instrument.Waveform = waveform;
-        instrument.Wavetable.Clear();
-        instrument.Wavetable.AddRange(waves);
-        instrument.Arpeggio.Clear();
-        instrument.Arpeggio.AddRange(notes);
-        instrument.ArpeggioEnding = ending;
-        instrument.ArpeggioLoopPoint = ending == ArpeggioEnding.Loop ? (int)(_loopFrom.Value ?? 0) : 0;
+        lock (Instrument.ProgramLock)
+        {
+            instrument.Waveform = waveform;
+            instrument.Wavetable.Clear();
+            instrument.Wavetable.AddRange(waves);
+            instrument.Arpeggio.Clear();
+            instrument.Arpeggio.AddRange(notes);
+            instrument.ArpeggioEnding = ending;
+            instrument.ArpeggioLoopPoint = ending == ArpeggioEnding.Loop ? (int)(_loopFrom.Value ?? 0) : 0;
+        }
     }
 
     private void StoreFilter(Instrument instrument)
     {
         var filter = ReadFilter();
 
-        instrument.Filter.Clear();
-        instrument.Filter.AddRange(filter);
+        lock (Instrument.ProgramLock)
+        {
+            instrument.Filter.Clear();
+            instrument.Filter.AddRange(filter);
+        }
     }
 
     /// <summary>Shows the notes a blank frame gets, so the column reads as what will play.</summary>

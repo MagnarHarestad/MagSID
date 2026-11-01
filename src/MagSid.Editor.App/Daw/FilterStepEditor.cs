@@ -147,7 +147,8 @@ internal sealed class FilterStepEditor : Panel
             if (instrument.Filter[_step] is { IsSetup: true } setup)
                 _switchedOff[(instrument, _step)] = (setup, instrument.Filter.Count);
 
-            instrument.Filter[_step] = FilterStep.Sweep(cutoff);
+            lock (Instrument.ProgramLock)
+                instrument.Filter[_step] = FilterStep.Sweep(cutoff);
         }
         else
         {
@@ -161,8 +162,11 @@ internal sealed class FilterStepEditor : Panel
                                    | (_voice2.Checked ? 0x02 : 0)
                                    | (_voice3.Checked ? 0x04 : 0);
 
-            instrument.Filter[_step] = FilterStep.Setup(
-                (byte)modeVolume, (byte)resonanceRouting, cutoff, _sweep.Value);
+            lock (Instrument.ProgramLock)
+            {
+                instrument.Filter[_step] = FilterStep.Setup(
+                    (byte)modeVolume, (byte)resonanceRouting, cutoff, _sweep.Value);
+            }
         }
 
         ShowStep(instrument, _step);

@@ -254,7 +254,8 @@ internal sealed class DawInstrumentView : Panel
         if (_loading || _instrument is not { } instrument)
             return;
 
-        edit(instrument);
+        lock (Instrument.ProgramLock)
+            edit(instrument);
         RefreshDerived(instrument);
 
         // Not while the editor itself is the one committing, or showing the step would reload the
