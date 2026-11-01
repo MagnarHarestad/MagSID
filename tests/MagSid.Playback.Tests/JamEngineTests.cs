@@ -25,6 +25,70 @@ public class JamEngineTests
 
     private static NoteName Note(string text) => NoteName.Parse(text);
 
+    /// <summary>The instrument is the one being edited, so frames can appear under a note that has
+    /// finished. Any of them has its gate bit set, which would start the sound again by itself.</summary>
+    [Fact]
+    public void A_frame_added_to_the_instrument_does_not_wake_a_released_note()
+    {
+        var (engine, writes) = Build();
+        var instrument = MakeInstrument(1);
+        instrument.Wavetable.Add(0x09);
+
+        engine.NoteOn(Note("C-4"), instrument);
+        for (int frame = 0; frame < 3; frame++)
+            engine.Frame();
+        engine.NoteOff(Note("C-4"));
+        engine.Frame();
+        writes.Clear();
+
+        instrument.Wavetable.Add(0x41);
+        for (int frame = 0; frame < 5; frame++)
+            engine.Frame();
+
+        Assert.DoesNotContain(writes, write => write.Offset == 4);
+    }
+
+    [Fact]
+    public void A_frame_added_while_the_note_is_held_still_plays()
+    {
+        var (engine, writes) = Build();
+        var instrument = MakeInstrument(1);
+        instrument.Wavetable.Add(0x09);
+
+        engine.NoteOn(Note("C-4"), instrument);
+        for (int frame = 0; frame < 3; frame++)
+            engine.Frame();
+        writes.Clear();
+
+        instrument.Wavetable.Add(0x41);
+        engine.Frame();
+
+        Assert.Contains((4, 0x41), writes);
+    }
+
+    [Fact]
+    public void The_next_note_plays_the_frames_added_since_the_last()
+    {
+        var (engine, writes) = Build();
+        var instrument = MakeInstrument(1);
+        instrument.Wavetable.Add(0x09);
+
+        engine.NoteOn(Note("C-4"), instrument);
+        for (int frame = 0; frame < 3; frame++)
+            engine.Frame();
+        engine.NoteOff(Note("C-4"));
+        engine.Frame();
+
+        instrument.Wavetable.Add(0x41);
+        writes.Clear();
+        engine.NoteOn(Note("C-4"), instrument);
+        for (int frame = 0; frame < 2; frame++)
+            engine.Frame();
+
+        Assert.Contains((4, 0x09), writes);
+        Assert.Contains((4, 0x41), writes);
+    }
+
     [Fact]
     public void First_three_notes_take_one_voice_each_in_order()
     {

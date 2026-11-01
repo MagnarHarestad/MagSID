@@ -427,15 +427,14 @@ internal sealed class InstrumentEditorView : DockPanel
                 _currentRow = row;
         }, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
-        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Sweep })
-            box.LostFocus += (_, _) => Commit();
-        row.Hex.LostFocus += (_, _) =>
+        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Sweep, row.Mode })
+            CommitOnLeavingOrEnter(box, Commit);
+        CommitOnLeavingOrEnter(row.Hex, () =>
         {
-            if (!_syncing)
-                SyncNoteFromHex(row);
-            Commit();
-        };
-        row.Mode.LostFocus += (_, _) => Commit();
+            // A value that is no note keeps its message up, which Commit would clear.
+            if (_syncing || SyncNoteFromHex(row))
+                Commit();
+        });
         row.Note.SelectionChanged += (_, _) =>
         {
             if (_loading || _syncing)
@@ -527,23 +526,38 @@ internal sealed class InstrumentEditorView : DockPanel
         _syncing = false;
     }
 
-    private void SyncNoteFromHex(ProgramRow row)
+    /// <summary>Enter takes what is typed the same way moving to another field does.</summary>
+    private static void CommitOnLeavingOrEnter(TextBox box, Action commit)
+    {
+        box.LostFocus += (_, _) => commit();
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter)
+                return;
+
+            commit();
+            e.Handled = true;
+        };
+    }
+
+    /// <summary>False when what is typed is no note, with the reason in the problem line.</summary>
+    private bool SyncNoteFromHex(ProgramRow row)
     {
         string text = (row.Hex.Text ?? "").Trim().TrimStart('$');
         if (text.Length == 0)
-            return;
+            return true;
 
         if (!TryHex(text, out byte raw))
         {
             _problem.Text = $"'{text}' is not a hex value.";
-            return;
+            return false;
         }
 
         int index = raw & 0x7F;
         if (index > 0x5F)
         {
             _problem.Text = $"${raw:x2} does not correspond to a note (valid: $00..$5f or $80..$df).";
-            return;
+            return false;
         }
 
         var note = NoteName.AllNotes[index];
@@ -551,6 +565,7 @@ internal sealed class InstrumentEditorView : DockPanel
         row.Note.SelectedItem = note.ToString();
         row.Hex.Text = Shown(HexText(note));
         _syncing = false;
+        return true;
     }
 
     private static string HexText(NoteName note) => note.TableIndex.ToString("x2");

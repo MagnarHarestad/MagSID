@@ -248,8 +248,10 @@ public sealed class VoiceEngine
         // the program runs out the register is simply left alone, and that hold is what lets a
         // drum settle on its final waveform without needing a loop.
         var wavetable = WavetableOf(instrument);
+        // Not after a release: the instrument may be the one being edited, and a frame added under
+        // a finished note would otherwise play, gate bit and all, with nothing asking it to.
         int step = _wavetablePosition - 1;
-        if (step < wavetable.Count)
+        if (!IsReleased && step < wavetable.Count)
         {
             int control = wavetable[step];
             LastWavetableStep = step;
