@@ -587,53 +587,105 @@ internal sealed class InstrumentEditorView : DockPanel
         if (_loading || _syncing || _instrument is not { } instrument)
             return;
 
-        _problem.Text = "";
+        FillNoteGaps();
+
+        // Each part on its own: a problem in one must not cost what was typed in the others, which
+        // would be gone on coming back to this instrument. The first problem is the one shown.
+        string? problem = null;
+        bool stored = false;
+        void Store(Action store)
+        {
+            try
+            {
+                store();
+                stored = true;
+            }
+            catch (FormatException ex)
+            {
+                problem ??= ex.Message;
+            }
+        }
+
+        Store(() => StoreSettings(instrument));
+        Store(() => StoreWavesAndNotes(instrument));
+        Store(() => StoreFilter(instrument));
+
+        _problem.Text = problem ?? "";
+        if (stored)
+            Edited?.Invoke();
+    }
+
+    private void StoreSettings(Instrument instrument)
+    {
+        byte attackDecay = ReadHex(_attackDecay.Text, "Attack/Decay");
+        byte sustainRelease = ReadHex(_sustainRelease.Text, "Sustain/Release");
+        byte sweep = ReadHex(_pulseSweep.Text, "Pulse Sweep");
+        bool vibrato = _vibrator.IsChecked == true;
+        byte delaySpeed = vibrato ? ReadHex(_vibDelaySpeed.Text, "Vibrato delay/speed") : instrument.VibratoDelaySpeed;
+        byte depth = vibrato ? ReadHex(_vibDepth.Text, "Vibrato depth") : (byte)0;
+        if (vibrato && depth == 0)
+            throw new FormatException("Vibrato depth must be 01-ff - 00 would mean no vibrato; switch Vibrator off instead.");
+
+        instrument.AttackDecay = attackDecay;
+        instrument.SustainRelease = sustainRelease;
+        // Off keeps the instrument's Soft as it was: with no restart it changes nothing, and
+        // the file is left as written.
+        instrument.NoHardRestart = _noHardRestart.IsChecked == true;
+        if (instrument.NoHardRestart == false)
+            instrument.SoftHardRestart = _softHardRestart.IsChecked == true;
+        instrument.PulseWidth = (int)(_pulseWidth.Value ?? 0);
+        instrument.PulseSweep = unchecked((sbyte)sweep);
+        instrument.PulseContinuous = _pulseContinuous.IsChecked == true;
+
+        // Switched off keeps the delay/speed the instrument last had, so switching Vibrator
+        // back on restores it; only the depth - the on/off in the file and the player - goes.
+        if (vibrato)
+            instrument.VibratoDelaySpeed = delaySpeed;
+        instrument.VibratoDepth = depth;
+    }
+
+    private void StoreWavesAndNotes(Instrument instrument)
+    {
+        var (waveform, waves, notes, ending) = ReadWavetable(instrument);
+
+        instrument.Waveform = waveform;
+        instrument.Wavetable.Clear();
+        instrument.Wavetable.AddRange(waves);
+        instrument.Arpeggio.Clear();
+        instrument.Arpeggio.AddRange(notes);
+        instrument.ArpeggioEnding = ending;
+        instrument.ArpeggioLoopPoint = ending == ArpeggioEnding.Loop ? (int)(_loopFrom.Value ?? 0) : 0;
+    }
+
+    private void StoreFilter(Instrument instrument)
+    {
+        var filter = ReadFilter();
+
+        instrument.Filter.Clear();
+        instrument.Filter.AddRange(filter);
+    }
+
+    /// <summary>Shows the notes a blank frame gets, so the column reads as what will play.</summary>
+    private void FillNoteGaps()
+    {
+        var typed = _program.Select(row => row.NoteText.Trim()).ToList();
+        var filled = InstrumentNoteColumn.FillGaps(typed, RootLabel);
+
+        _syncing = true;
         try
         {
-            byte attackDecay = ReadHex(_attackDecay.Text, "Attack/Decay");
-            byte sustainRelease = ReadHex(_sustainRelease.Text, "Sustain/Release");
-            byte sweep = ReadHex(_pulseSweep.Text, "Pulse Sweep");
-            bool vibrato = _vibrator.IsChecked == true;
-            byte delaySpeed = vibrato ? ReadHex(_vibDelaySpeed.Text, "Vibrato delay/speed") : instrument.VibratoDelaySpeed;
-            byte depth = vibrato ? ReadHex(_vibDepth.Text, "Vibrato depth") : (byte)0;
-            if (vibrato && depth == 0)
-                throw new FormatException("Vibrato depth must be 01-ff - 00 would mean no vibrato; switch Vibrator off instead.");
+            for (int i = 0; i < typed.Count; i++)
+            {
+                if (filled[i] == typed[i])
+                    continue;
 
-            var (waveform, waves, notes, ending) = ReadWavetable(instrument);
-            var filter = ReadFilter();
-
-            instrument.Waveform = waveform;
-            instrument.AttackDecay = attackDecay;
-            instrument.SustainRelease = sustainRelease;
-            // Off keeps the instrument's Soft as it was: with no restart it changes nothing, and
-            // the file is left as written.
-            instrument.NoHardRestart = _noHardRestart.IsChecked == true;
-            if (instrument.NoHardRestart == false)
-                instrument.SoftHardRestart = _softHardRestart.IsChecked == true;
-            instrument.PulseWidth = (int)(_pulseWidth.Value ?? 0);
-            instrument.PulseSweep = unchecked((sbyte)sweep);
-            instrument.PulseContinuous = _pulseContinuous.IsChecked == true;
-
-            // Switched off keeps the delay/speed the instrument last had, so switching Vibrator
-            // back on restores it; only the depth - the on/off in the file and the player - goes.
-            if (vibrato)
-                instrument.VibratoDelaySpeed = delaySpeed;
-            instrument.VibratoDepth = depth;
-
-            instrument.Wavetable.Clear();
-            instrument.Wavetable.AddRange(waves);
-            instrument.Arpeggio.Clear();
-            instrument.Arpeggio.AddRange(notes);
-            instrument.ArpeggioEnding = ending;
-            instrument.ArpeggioLoopPoint = ending == ArpeggioEnding.Loop ? (int)(_loopFrom.Value ?? 0) : 0;
-            instrument.Filter.Clear();
-            instrument.Filter.AddRange(filter);
-
-            Edited?.Invoke();
+                _program[i].Note.SelectedItem = filled[i];
+                _program[i].Hex.Text = NoteName.TryParse(filled[i], out var note) ? Shown(HexText(note)) : "";
+            }
         }
-        catch (FormatException ex)
+        finally
         {
-            _problem.Text = ex.Message;
+            _syncing = false;
         }
     }
 
