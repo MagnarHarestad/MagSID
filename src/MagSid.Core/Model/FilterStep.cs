@@ -49,6 +49,26 @@ public readonly record struct FilterStep
 
     public bool IsSetup => ModeVolume.HasValue;
 
+    /// <summary>The filter modes a setup step switches on, as the editor's buttons name them: "LP",
+    /// "LP+HP", or "off" with none. Null for a sweep step, which leaves the mode alone.</summary>
+    public string? ModeText
+    {
+        get
+        {
+            if (ModeVolume is not { } mode)
+                return null;
+
+            var names = new List<string>(3);
+            if ((mode & 0x10) != 0)
+                names.Add("LP");
+            if ((mode & 0x20) != 0)
+                names.Add("BP");
+            if ((mode & 0x40) != 0)
+                names.Add("HP");
+            return names.Count == 0 ? "off" : string.Join('+', names);
+        }
+    }
+
     public static FilterStep Sweep(byte cutoff) => new() { Cutoff = cutoff };
 
     /// <summary>Masks off bit 7 of <paramref name="modeVolume"/> (3OFF) unconditionally, so

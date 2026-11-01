@@ -75,19 +75,21 @@ internal static class ProgramSteps
     {
         var steps = new List<ProgramStep>();
         int? previous = null;
+        string? mode = null;    // a sweep step sounds through the last setup's mode
 
         foreach (var step in instrument.Filter)
         {
             if (step.IsSetup)
             {
-                steps.Add(new ProgramStep($"${step.Cutoff:X2}", StepGlyph.Setup, DawPalette.Filter, Marker: true));
+                mode = step.ModeText;
+                steps.Add(new ProgramStep($"${step.Cutoff:X2}", StepGlyph.Setup, DawPalette.Filter, Marker: true, Above: mode));
             }
             else
             {
                 var glyph = previous is null || step.Cutoff == previous
                     ? StepGlyph.Flat
                     : step.Cutoff > previous ? StepGlyph.Rise : StepGlyph.Fall;
-                steps.Add(new ProgramStep($"${step.Cutoff:X2}", glyph, DawPalette.Filter));
+                steps.Add(new ProgramStep($"${step.Cutoff:X2}", glyph, DawPalette.Filter, Above: mode));
             }
 
             previous = step.Cutoff;

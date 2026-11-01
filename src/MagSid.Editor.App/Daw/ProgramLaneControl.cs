@@ -20,8 +20,9 @@ internal enum StepGlyph
 
 /// <summary>One cell of a program. <paramref name="Marker"/> separates a real step from something
 /// that only says where the program goes next - LOOP, HOLD, ROOT - which costs bytes differently and
-/// should not look like a frame of sound.</summary>
-internal sealed record ProgramStep(string Label, StepGlyph Glyph, Color Accent, bool Marker = false);
+/// should not look like a frame of sound. <paramref name="Above"/> is a second line over the label:
+/// bright on a marker, which sets it, and faint on a step that only carries it on.</summary>
+internal sealed record ProgramStep(string Label, StepGlyph Glyph, Color Accent, bool Marker = false, string? Above = null);
 
 /// <summary>
 /// One of an instrument's three programs - wavetable, note program, filter - as a row of steps
@@ -371,6 +372,14 @@ internal sealed class ProgramLaneControl : Control
         var centred = new StringFormat { Alignment = StringAlignment.Center };
         g.DrawString(step.Label, labelFont, labelInk,
             new RectangleF(cell.X, cell.Bottom - 15, cell.Width, 14), centred);
+
+        // Left out when a short lane has no room for it under the glyph.
+        if (step.Above is not null && cell.Bottom - 27 >= glyphBox.Bottom)
+        {
+            using var aboveInk = new SolidBrush(step.Marker ? step.Accent : DawPalette.TextFaint);
+            g.DrawString(step.Above, labelFont, aboveInk,
+                new RectangleF(cell.X, cell.Bottom - 27, cell.Width, 14), centred);
+        }
     }
 
     private static void DrawGlyph(Graphics g, ProgramStep step, Rectangle box)
