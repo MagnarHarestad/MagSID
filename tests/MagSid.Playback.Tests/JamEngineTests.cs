@@ -89,6 +89,25 @@ public class JamEngineTests
         Assert.Contains((4, 0x41), writes);
     }
 
+    /// <summary>The editor stores these as they are typed, to be heard on the sounding note.</summary>
+    [Fact]
+    public void A_changed_attack_decay_and_sustain_release_reach_the_sid_on_the_next_frame()
+    {
+        var (engine, writes) = Build();
+        var instrument = MakeInstrument(1, ad: 0x09, sr: 0xaa);
+
+        engine.NoteOn(Note("C-4"), instrument);
+        engine.Frame();
+        writes.Clear();
+
+        instrument.AttackDecay = 0x5c;
+        instrument.SustainRelease = 0x3d;
+        engine.Frame();
+
+        Assert.Contains((5, 0x5c), writes);
+        Assert.Contains((6, 0x3d), writes);
+    }
+
     [Fact]
     public void First_three_notes_take_one_voice_each_in_order()
     {

@@ -199,6 +199,8 @@ internal sealed class InstrumentEditorView : DockPanel
 
         foreach (var box in new[] { _attackDecay, _sustainRelease, _pulseSweep, _vibDelaySpeed, _vibDepth })
             box.LostFocus += (_, _) => Commit();
+        _attackDecay.TextChanged += (_, _) => StoreAsTyped(_attackDecay, i => i.AttackDecay, (i, value) => i.AttackDecay = value);
+        _sustainRelease.TextChanged += (_, _) => StoreAsTyped(_sustainRelease, i => i.SustainRelease, (i, value) => i.SustainRelease = value);
         _pulseContinuous.IsCheckedChanged += (_, _) => Commit();
         foreach (var segment in new[] { _fullHardRestart, _softHardRestart, _noHardRestart })
         {
@@ -581,6 +583,25 @@ internal sealed class InstrumentEditorView : DockPanel
     }
 
     // ---------------------------------------------------------------- commit
+
+    /// <summary>A value that takes effect as soon as its second digit is typed, to hear the change
+    /// while the song plays: the player writes it to the SID every frame. Only this byte, and not a
+    /// whole <see cref="Commit"/>, which rebuilds the programs the audio thread is reading.
+    ///
+    /// Compared with what is stored because TextChanged comes after the event that caused it, so it
+    /// also arrives after <see cref="Load"/> has shown another instrument, which is no edit.</summary>
+    private void StoreAsTyped(TextBox box, Func<Instrument, byte> stored, Action<Instrument, byte> store)
+    {
+        if (_loading || _instrument is not { } instrument)
+            return;
+
+        string text = (box.Text ?? "").Trim();
+        if (text.Length != 2 || !TryHex(text, out byte value) || value == stored(instrument))
+            return;
+
+        store(instrument, value);
+        Edited?.Invoke();
+    }
 
     private void Commit()
     {
