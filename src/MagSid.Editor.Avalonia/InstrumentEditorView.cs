@@ -568,7 +568,17 @@ internal sealed class InstrumentEditorView : DockPanel
     {
         string text = (row.Hex.Text ?? "").Trim().TrimStart('$');
         if (text.Length == 0)
+        {
+            // Blank takes the note away. ROOT has no hex of its own, so a blank says nothing there.
+            if (row.NoteText != RootLabel)
+            {
+                _syncing = true;
+                row.Note.SelectedItem = "";
+                _syncing = false;
+            }
+
             return true;
+        }
 
         if (!TryHex(text, out byte raw))
         {
