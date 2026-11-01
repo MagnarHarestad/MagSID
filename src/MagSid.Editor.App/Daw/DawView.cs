@@ -65,6 +65,7 @@ internal sealed class DawView : Panel
     /// punch-out. Closing it lets go of a held key there.</summary>
     private bool _recordWindowOpen = true;
     private readonly DawInstrumentView _instrument = new();
+    private ScrollingPage _instrumentPage = null!;
     private readonly Panel _placeholder = new();
     private readonly FlowLayoutPanel _tabs = new();
     private readonly ListBox _instrumentList = new();
@@ -718,7 +719,7 @@ internal sealed class DawView : Panel
         _pianoRoll.NotePreviewRequested += (note, instrument) => NotePreviewRequested?.Invoke(note, instrument);
         _pianoRoll.NotePreviewReleased += note => NotePreviewReleased?.Invoke(note);
 
-        _instrument.Dock = DockStyle.Fill;
+        _instrumentPage = new ScrollingPage(_instrument, _instrument.PageHeight) { Dock = DockStyle.Fill };
         _instrument.Edited += instrument =>
         {
             RefreshInstrumentList();
@@ -762,7 +763,7 @@ internal sealed class DawView : Panel
         _arrangePage.Controls.Add(_arrangeTop);
 
         Controls.Add(_arrangePage);
-        Controls.Add(_instrument);
+        Controls.Add(_instrumentPage);
         Controls.Add(_placeholder);
         Controls.Add(_instrumentList);
         Controls.Add(_tabs);
@@ -882,7 +883,7 @@ internal sealed class DawView : Panel
     {
         _current = tab;
         _arrangePage.Visible = tab == DawTab.Arrange;
-        _instrument.Visible = tab == DawTab.Instrument;
+        _instrumentPage.Visible = tab == DawTab.Instrument;
         _placeholder.Visible = false;
 
         // One list, two homes: beside the oscillator and vibrato on the instrument page, and beside

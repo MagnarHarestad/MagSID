@@ -374,6 +374,12 @@ public sealed class VoiceEngine
                     _arpeggioIndex = instrument.ArpeggioLoopPoint;
                     break;
             }
+
+            // The program can be edited as it plays: steps gone from under a sounding note leave
+            // it on what is still there, or, with none left, on the pitch it has.
+            _arpeggioIndex = Math.Min(_arpeggioIndex, steps.Count - 1);
+            if (_arpeggioIndex < 0)
+                return;
         }
 
         LastArpeggioStep = _arpeggioIndex;

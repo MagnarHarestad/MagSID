@@ -98,12 +98,23 @@ public sealed partial class MainWindow : Window
     {
         Title = $"MagSID Editor {EditorVersion}";
 
+        // Here and not in Main: the dispatcher belongs to the platform, which is up by now.
+        Dispatcher.UIThread.UnhandledException += (_, e) => CrashLog.Write("UI thread", e.Exception);
+
         // As 1.64: exactly as wide as the instrument column, the splitter and the grid, so there
         // is no margin either side until the window is made wider.
         Width = InstrumentColumnWidth + SplitterWidth + TrackerGridControl.ContentWidth + 1;
         Height = 941;
         MinWidth = 900;
         MinHeight = 520;
+        if ((Screens?.ScreenFromPoint(Position) ?? Screens?.Primary) is { } screen)
+        {
+            Width = WindowFit.Within(Width, screen.WorkingArea.Width, screen.Scaling);
+            Height = WindowFit.Within(Height, screen.WorkingArea.Height, screen.Scaling, WindowFit.FrameAllowance);
+            MinWidth = Math.Min(MinWidth, Width);
+            MinHeight = Math.Min(MinHeight, Height);
+        }
+
         Background = WindowBackground;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
@@ -304,6 +315,16 @@ public sealed partial class MainWindow : Window
         left.Children.Add(list);
         left.Children.Add(_instrumentEditor);
 
+        // A short window scrolls the column: the list keeps its 16 rows, and without this they
+        // would take the room of the frame table under them.
+        var leftScroll = new ScrollViewer
+        {
+            Content = left,
+            HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
+        leftScroll.SizeChanged += (_, e) => left.Height = Math.Max(e.NewSize.Height, LowestInstrumentColumn);
+
         // The grid's columns are fixed pixel widths; it keeps its own width.
         _grid.Width = TrackerGridControl.ContentWidth;
         var gridHost = new Border { Child = _grid };
@@ -314,9 +335,9 @@ public sealed partial class MainWindow : Window
         // keeps its width, so a channel is never sliced off.
         var retro = new DockPanel { HorizontalAlignment = HorizontalAlignment.Center };
         var splitter = InstrumentSplitter(left);
-        DockPanel.SetDock(left, Dock.Left);
+        DockPanel.SetDock(leftScroll, Dock.Left);
         DockPanel.SetDock(splitter, Dock.Left);
-        retro.Children.Add(left);
+        retro.Children.Add(leftScroll);
         retro.Children.Add(splitter);
         retro.Children.Add(gridHost);
         _retroView = retro;
@@ -482,6 +503,9 @@ public sealed partial class MainWindow : Window
     private const double SplitterWidth = 4;
     private const double NarrowestInstrumentColumn = 260;
     private const double WidestInstrumentColumn = 900;
+
+    /// <summary>The list's 16 rows, and the editor with room for several frames in its table.</summary>
+    private const double LowestInstrumentColumn = 780;
 
     /// <summary>The bar between the instrument column and the grid: a drag sets the column's width.</summary>
     private static Control InstrumentSplitter(Control column)

@@ -152,6 +152,7 @@ public sealed class PortAudioOutput : IAudioOutput
             catch (Exception ex)
             {
                 _failure = ex;
+                CrashLog.Write("audio", ex);
                 return StreamCallbackResult.Abort;
             }
         }

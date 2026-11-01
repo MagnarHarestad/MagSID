@@ -17,6 +17,8 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => CrashLog.Write("unhandled", e.ExceptionObject as Exception);
+
         AudioOutput.Open = PortAudioOutput.Open;
         if (MainWindow.FrameProbeLog is not null)
             AudioOutput.Open = (source, _) => new FrameProbeOutput(source);

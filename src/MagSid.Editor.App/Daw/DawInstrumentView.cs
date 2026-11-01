@@ -23,6 +23,16 @@ internal sealed class DawInstrumentView : Panel
     /// width under it - as the piano roll does under the strip on ARRANGE.</summary>
     private readonly Panel _upper = new() { Dock = DockStyle.Top, BackColor = DawPalette.Background };
 
+    private const string NotesHint = "Absolute notes. Mouseclick to write note or use Mousewheel to change. Right-click to delete.";
+    private const string FixedNotesHint = "Fixed notes: every key plays these same notes. Choose ROOT to end on the key played.";
+
+    /// <summary>A program's row: the tallest thing beside the note program is the From knob, under
+    /// the caption, and a row's margin. Any less cuts off the ending's buttons.</summary>
+    private const int ProgramRowHeight = 30 + 62 + 5;
+
+    /// <summary>The height everything on the page needs, for a window shorter than that to scroll.</summary>
+    public int PageHeight { get; private set; }
+
     /// <summary>The strip's place on this page: the left of <see cref="_upper"/>, as wide as the
     /// strip, with the page's own background under the strip's 16 rows.</summary>
     private readonly Panel _stripSlot = new() { Dock = DockStyle.Left, Width = 186, BackColor = DawPalette.Background };
@@ -254,8 +264,14 @@ internal sealed class DawInstrumentView : Panel
         if (_loading || _instrument is not { } instrument)
             return;
 
+        // Taking steps away can leave the loop past the end, where playback has no step to go to,
+        // saving is refused and an export would run on into whatever follows the program.
         lock (Instrument.ProgramLock)
+        {
             edit(instrument);
+            instrument.ArpeggioLoopPoint = Math.Clamp(instrument.ArpeggioLoopPoint, 0, LastStep(instrument));
+        }
+
         RefreshDerived(instrument);
 
         // Not while the editor itself is the one committing, or showing the step would reload the
@@ -275,9 +291,33 @@ internal sealed class DawInstrumentView : Panel
             PackedNibbles.High(instrument.SustainRelease), PackedNibbles.Low(instrument.SustainRelease));
 
         _wavetable.SetSteps(ProgramSteps.Wavetable(instrument));
+        _noteProgram.Hint = instrument.Arpeggio.Count > 0 && instrument.ArpeggioEnding != ArpeggioEnding.Root
+            ? FixedNotesHint
+            : NotesHint;
         _noteProgram.SetSteps(ProgramSteps.NoteProgram(instrument));
         _filter.SetSteps(ProgramSteps.Filter(instrument));
         ShowWaveformTarget(instrument);
+        ShowLoopFrom(instrument);
+    }
+
+    private static int LastStep(Instrument instrument) => Math.Max(0, instrument.Arpeggio.Count - 1);
+
+    /// <summary>The knob only reaches steps there are. Under <see cref="_loading"/>, because lowering
+    /// its top moves a value that was over it, and this is showing the value and not editing it.</summary>
+    private void ShowLoopFrom(Instrument instrument)
+    {
+        bool loading = _loading;
+        _loading = true;
+
+        try
+        {
+            _arpLoopFrom.Maximum = LastStep(instrument);
+            _arpLoopFrom.SetValueSilently(instrument.ArpeggioLoopPoint);
+        }
+        finally
+        {
+            _loading = loading;
+        }
     }
 
     private void BeginNoteEntry(int step, Rectangle cell)
@@ -764,7 +804,7 @@ internal sealed class DawInstrumentView : Panel
         _wavetable.Accent = DawPalette.Envelope;
 
         _noteProgram.Title = "NOTE PROGRAM";
-        _noteProgram.Hint = "Absolute notes. Mouseclick to write note or use Mousewheel to change. Right-click to delete.";
+        _noteProgram.Hint = NotesHint;
         _noteProgram.Accent = DawPalette.Oscillator;
 
         // The lane picks a step; the editor below shows everything that step carries. Mode,
@@ -823,6 +863,7 @@ internal sealed class DawInstrumentView : Panel
         }
 
         _upper.Height = header.Height + top.Height;
+        PageHeight = Padding.Vertical + _upper.Height + oscillatorRow.Height + _filterStep.Height + programs.Padding.Top + (3 * ProgramRowHeight);
         _upper.Controls.Add(top);
         _upper.Controls.Add(header);
         _upper.Controls.Add(_stripSlot);

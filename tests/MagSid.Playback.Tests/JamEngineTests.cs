@@ -89,6 +89,29 @@ public class JamEngineTests
         Assert.Contains((4, 0x41), writes);
     }
 
+    /// <summary>A step past the end used to throw on the audio thread, which stops all sound.</summary>
+    [Theory]
+    [InlineData(ArpeggioEnding.Loop, 2, 5)]     // the loop past the end, as the From knob could put it
+    [InlineData(ArpeggioEnding.Loop, 0, 0)]     // every step deleted while the note sounds
+    [InlineData(ArpeggioEnding.Hold, 0, 0)]
+    public void A_program_cut_short_under_a_sounding_note_never_fails_a_frame(ArpeggioEnding ending, int stepsLeft, int loopPoint)
+    {
+        var (engine, writes) = Build();
+        var instrument = MakeInstrument(1);
+        instrument.Arpeggio.AddRange([Note("C-4"), Note("E-4"), Note("G-4")]);
+        instrument.ArpeggioEnding = ending;
+
+        engine.NoteOn(Note("C-4"), instrument);
+        engine.Frame();
+
+        instrument.Arpeggio.RemoveRange(stepsLeft, instrument.Arpeggio.Count - stepsLeft);
+        instrument.ArpeggioLoopPoint = loopPoint;
+        for (int frame = 0; frame < 20; frame++)
+            engine.Frame();
+
+        Assert.NotEmpty(writes);
+    }
+
     /// <summary>The audio thread reads the instrument the editor is rewriting as it is typed. Without
     /// the lock a frame finds a list empty between its length and its contents.</summary>
     [Fact]
