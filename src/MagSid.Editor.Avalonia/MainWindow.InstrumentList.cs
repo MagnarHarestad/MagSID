@@ -66,8 +66,10 @@ public sealed partial class MainWindow
         _duplicateInstrument.Click += (_, _) => DuplicateInstrument();
         _deleteInstrument.Click += (_, _) => DeleteInstrument();
 
-        // Filled as it opens, so files dropped into the bank folder show up without a restart.
+        // Filled as it opens, so files dropped into the bank folder show up without a restart. The
+        // seed makes the list now: the presenter, created before Opening, keeps the list it finds.
         var more = new MenuFlyout();
+        more.Items.Add(new Separator());
         more.Opening += (_, _) => FillInstrumentMenu(more.Items);
         _moreInstrument.Flyout = more;
 
