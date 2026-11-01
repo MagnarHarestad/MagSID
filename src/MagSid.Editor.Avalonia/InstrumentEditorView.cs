@@ -500,7 +500,7 @@ internal sealed class InstrumentEditorView : DockPanel
 
     /// <summary>Cutoff needs a filter step of either kind; Mode/Vol, Res+Voice and Sweep need a
     /// setup. A blank Filter - no filter action this frame - blanks and locks all four.</summary>
-    private static void ApplyFilterType(ProgramRow row)
+    private void ApplyFilterType(ProgramRow row)
     {
         bool setup = row.TypeText == "Setup";
         bool step = row.TypeText.Length > 0;
@@ -509,7 +509,7 @@ internal sealed class InstrumentEditorView : DockPanel
         if (!step)
             row.Cutoff.Text = "";
         else if (string.IsNullOrWhiteSpace(row.Cutoff.Text))
-            row.Cutoff.Text = "08";
+            row.Cutoff.Text = (setup ? null : CutoffAbove(row)) ?? "08";
 
         foreach (var (cell, fresh) in new[] { (row.Mode, Shown("1f")), (row.Res, "f1"), (row.Sweep, "0") })
         {
@@ -519,6 +519,19 @@ internal sealed class InstrumentEditorView : DockPanel
             else if (string.IsNullOrWhiteSpace(cell.Text))
                 cell.Text = fresh;
         }
+    }
+
+    /// <summary>The cutoff of the nearest filter step above: a new sweep carries on from where the
+    /// filter already is, and does not jump. Null when no step comes before this row.</summary>
+    private string? CutoffAbove(ProgramRow row)
+    {
+        for (int i = _program.IndexOf(row) - 1; i >= 0; i--)
+        {
+            if (_program[i].TypeText.Length > 0 && !string.IsNullOrWhiteSpace(_program[i].Cutoff.Text))
+                return _program[i].Cutoff.Text;
+        }
+
+        return null;
     }
 
     private void SyncHexFromNote(ProgramRow row)
