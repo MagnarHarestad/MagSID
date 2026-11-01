@@ -363,6 +363,9 @@ internal sealed class InstrumentEditorView : DockPanel
         public required TextBox Cutoff { get; init; }
         public required TextBox Sweep { get; init; }
 
+        /// <summary>What a filter cell held when its Filter choice took it away, to bring back.</summary>
+        public Dictionary<TextBox, string> Kept { get; } = [];
+
         public string NoteText => Note.SelectedItem as string ?? "";
         public string TypeText => Type.SelectedItem as string ?? "";
     }
@@ -505,19 +508,24 @@ internal sealed class InstrumentEditorView : DockPanel
         bool setup = row.TypeText == "Setup";
         bool step = row.TypeText.Length > 0;
 
-        row.Cutoff.IsEnabled = step;
-        if (!step)
-            row.Cutoff.Text = "";
-        else if (string.IsNullOrWhiteSpace(row.Cutoff.Text))
-            row.Cutoff.Text = (setup ? null : CutoffAbove(row)) ?? "08";
+        ShowFilterCell(row, row.Cutoff, step, () => (setup ? null : CutoffAbove(row)) ?? "08");
+        ShowFilterCell(row, row.Mode, setup, () => Shown("1f"));
+        ShowFilterCell(row, row.Res, setup, () => "f1");
+        ShowFilterCell(row, row.Sweep, setup, () => "0");
+    }
 
-        foreach (var (cell, fresh) in new[] { (row.Mode, Shown("1f")), (row.Res, "f1"), (row.Sweep, "0") })
+    private static void ShowFilterCell(ProgramRow row, TextBox cell, bool used, Func<string> fresh)
+    {
+        cell.IsEnabled = used;
+        if (!used)
         {
-            cell.IsEnabled = setup;
-            if (!setup)
-                cell.Text = "";
-            else if (string.IsNullOrWhiteSpace(cell.Text))
-                cell.Text = fresh;
+            if (!string.IsNullOrWhiteSpace(cell.Text))
+                row.Kept[cell] = cell.Text!;
+            cell.Text = "";
+        }
+        else if (string.IsNullOrWhiteSpace(cell.Text))
+        {
+            cell.Text = row.Kept.GetValueOrDefault(cell) ?? fresh();
         }
     }
 

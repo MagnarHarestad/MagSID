@@ -11,7 +11,8 @@ namespace MagSid.Editor.App.Daw;
 /// no way to reach at all.
 ///
 /// The SETUP toggle converts between the two, which is a real change to the byte stream: a setup
-/// record costs five bytes against a sweep step's one, and opens with $FF.
+/// record costs five bytes against a sweep step's one, and opens with $FF. A sweep step has nowhere
+/// to keep the rest, so this does, and switching SETUP back on brings it back.
 /// </summary>
 internal sealed class FilterStepEditor : Panel
 {
@@ -36,6 +37,10 @@ internal sealed class FilterStepEditor : Panel
     private Instrument? _instrument;
     private int _step = -1;
     private bool _loading;
+
+    /// <summary>The setup a step had when SETUP was switched off, for as long as the program keeps
+    /// its length: a step added or removed ahead of it makes that number another step.</summary>
+    private readonly Dictionary<(Instrument Instrument, int Step), (FilterStep Setup, int ProgramLength)> _switchedOff = [];
 
     public FilterStepEditor()
     {
@@ -93,8 +98,11 @@ internal sealed class FilterStepEditor : Panel
             _setup.Checked = current.IsSetup;
             _cutoff.SetValueSilently(current.Cutoff);
 
-            byte modeVolume = current.ModeVolume ?? 0x0F;
-            byte resonanceRouting = current.ResonanceRouting ?? 0xF1;
+            // Behind a sweep step's hidden controls: what switching SETUP on will store.
+            var setup = current.IsSetup ? current : SwitchedOffSetup(instrument, step) ?? current;
+
+            byte modeVolume = setup.ModeVolume ?? 0x0F;
+            byte resonanceRouting = setup.ResonanceRouting ?? 0xF1;
 
             _volume.SetValueSilently(modeVolume & 0x0F);
             _lowPass.Checked = (modeVolume & 0x10) != 0;
@@ -106,7 +114,7 @@ internal sealed class FilterStepEditor : Panel
             _voice2.Checked = (resonanceRouting & 0x02) != 0;
             _voice3.Checked = (resonanceRouting & 0x04) != 0;
 
-            _sweep.SetValueSilently(current.SweepRate);
+            _sweep.SetValueSilently(setup.SweepRate);
 
             // A sweep step carries none of the rest, so showing its controls would invite edits
             // that go nowhere.
@@ -118,6 +126,11 @@ internal sealed class FilterStepEditor : Panel
             _loading = false;
         }
     }
+
+    private FilterStep? SwitchedOffSetup(Instrument instrument, int step) =>
+        _switchedOff.TryGetValue((instrument, step), out var kept) && kept.ProgramLength == instrument.Filter.Count
+            ? kept.Setup
+            : null;
 
     private IEnumerable<Control> SetupOnlyControls() =>
         [_volume, _resonance, _sweep, _lowPass, _bandPass, _highPass, _voice1, _voice2, _voice3];
@@ -131,6 +144,9 @@ internal sealed class FilterStepEditor : Panel
 
         if (!_setup.Checked)
         {
+            if (instrument.Filter[_step] is { IsSetup: true } setup)
+                _switchedOff[(instrument, _step)] = (setup, instrument.Filter.Count);
+
             instrument.Filter[_step] = FilterStep.Sweep(cutoff);
         }
         else
