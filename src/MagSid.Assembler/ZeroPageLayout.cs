@@ -77,9 +77,17 @@ public sealed class ZeroPageLayout
         FilterPhase = Scalar();
         FilterDelta = Scalar();
 
-        // Funk speed's shuffle byte, last - so a song without it keeps every address it had.
-        if (features.Funk)
+        // Fxy rows' two bytes, or else funk speed's shuffle byte, last - so a song without them
+        // keeps every address it had.
+        if (features.SpeedRows)
+        {
+            SongNext = Scalar();
+            SongDelta = Scalar();
+        }
+        else if (features.Funk)
+        {
             SongShuffle = Scalar();
+        }
 
         End = _last + 1;
     }
@@ -128,6 +136,13 @@ public sealed class ZeroPageLayout
     /// tick flips it with the two speeds' difference.</summary>
     public int SongShuffle { get; }
 
+    /// <summary>Song_Next: zero unless a pattern has an Fxy row. Each tick flips it with Song_Delta
+    /// and that is the tick's speed; an Fxy row sets both.</summary>
+    public int SongNext { get; }
+
+    /// <summary>Song_Delta: the two speeds' difference, 0 for one speed.</summary>
+    public int SongDelta { get; }
+
     public int FilterPos { get; }
     public int FilterPhase { get; }
     public int FilterDelta { get; }
@@ -159,7 +174,9 @@ public sealed class ZeroPageLayout
 /// scanning the song's INSTRUMENTS block.</summary>
 /// <param name="SoftHardRestart">Some instrument has SOFTHR, so the hard restart has to look at
 /// the outgoing instrument's flag; without one the test is left out of the player.</param>
-public sealed record PlayerFeatures(bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false)
+/// <param name="SpeedRows">A pattern has an Fxy row, so the speeds have to be bytes a row can change
+/// rather than constants in the reload.</param>
+public sealed record PlayerFeatures(bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false)
 {
     public static readonly PlayerFeatures None = new(false, false);
 

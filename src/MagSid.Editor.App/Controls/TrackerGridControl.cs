@@ -117,6 +117,9 @@ public sealed class TrackerGridControl : Control
     // a colour of its own rather than the note's.
     private static readonly Brush BrushSlide = new SolidBrush(EditorPalette.Warning);
 
+    // A speed row ("Fxy") beside them: it moves every channel, so it should not read as a slide.
+    private static readonly Brush BrushSpeed = new SolidBrush(EditorPalette.Title);
+
     // A later pass of an unrolled loop: a violet wash light enough to keep the current-row band
     // showing through, a rail down its left edge, and a dashed box on the cursor's row in the
     // other passes - the cells an edit at the cursor changes too.
@@ -653,7 +656,7 @@ public sealed class TrackerGridControl : Control
     {
         base.OnMouseDown(e);
         Focus();
-        _slideEntry = null;
+        _effectEntry = null;
 
         // Header clicks are handled before the playback-active bail-out below, unlike every
         // other click in this grid - muting a channel is exactly the thing you want to do *while*
@@ -908,9 +911,9 @@ public sealed class TrackerGridControl : Control
             return;
         }
 
-        // A slide being typed takes the keys first - letters and digits included, which would
-        // otherwise play notes - until it is complete, abandoned, or interrupted.
-        if (_slideEntry is not null && HandleSlideEntryKey(e.KeyCode))
+        // A slide or speed row being typed takes the keys first - letters and digits included, which
+        // would otherwise play notes - until it is complete, abandoned, or interrupted.
+        if (_effectEntry is not null && HandleEffectEntryKey(e.KeyCode))
         {
             e.Handled = e.SuppressKeyPress = true;
             return;
@@ -921,7 +924,18 @@ public sealed class TrackerGridControl : Control
         if (_editMode && _cursorField == CursorField.Note && !e.Control && !e.Alt
             && e.KeyCode is Keys.NumPad1 or Keys.NumPad2)
         {
-            _slideEntry = e.KeyCode == Keys.NumPad1 ? "1" : "2";
+            _effectEntry = e.KeyCode == Keys.NumPad1 ? "1" : "2";
+            Invalidate();
+            e.Handled = e.SuppressKeyPress = true;
+            return;
+        }
+
+        // F starts a speed row: "Fxy". The piano leaves it out, on any layout that keeps F where
+        // QWERTY has it; where one has it on a piano key, the piano comes first.
+        if (_editMode && _cursorField == CursorField.Note && !e.Control && !e.Alt
+            && e.KeyCode == Keys.F && PianoKeyMap.Play(Keys.F, 0) is null)
+        {
+            _effectEntry = "F";
             Invalidate();
             e.Handled = e.SuppressKeyPress = true;
             return;
@@ -1126,9 +1140,9 @@ public sealed class TrackerGridControl : Control
     {
         base.OnLostFocus(e);
         ReleaseAllJamNotes();
-        if (_slideEntry is not null)
+        if (_effectEntry is not null)
         {
-            _slideEntry = null;
+            _effectEntry = null;
             Invalidate();
         }
     }
@@ -1150,46 +1164,48 @@ public sealed class TrackerGridControl : Control
 
     /// <summary>A slide being typed: "1" or "2" for the direction, then up to the two hex digits
     /// of the rate. Null when nothing is being typed.</summary>
-    private string? _slideEntry;
+    private string? _effectEntry;
 
     /// <summary>
     /// One key of a slide being typed. Hex digits - numpad, digit row or A-F - fill in the rate,
     /// and the second one writes the row; Backspace takes one back and Escape drops the lot. Any
     /// other key abandons it and returns false, so that key then does whatever it normally does.
     /// </summary>
-    private bool HandleSlideEntryKey(Keys key)
+    private bool HandleEffectEntryKey(Keys key)
     {
         if (key == Keys.Escape)
         {
-            _slideEntry = null;
+            _effectEntry = null;
             Invalidate();
             return true;
         }
 
         if (key == Keys.Back)
         {
-            _slideEntry = _slideEntry!.Length > 1 ? _slideEntry[..^1] : null;
+            _effectEntry = _effectEntry!.Length > 1 ? _effectEntry[..^1] : null;
             Invalidate();
             return true;
         }
 
         if (HexDigitFromKey(key) is not { } digit)
         {
-            _slideEntry = null;
+            _effectEntry = null;
             Invalidate();
             return false;
         }
 
-        _slideEntry += digit.ToString("X");
-        if (_slideEntry.Length == 3)
+        _effectEntry += digit.ToString("X");
+        if (_effectEntry.Length == 3)
         {
-            string text = _slideEntry;
-            _slideEntry = null;
+            string text = _effectEntry;
+            _effectEntry = null;
 
             if (SlideRow.TryParse(text, out var slide))
                 SetRowAtCursor(slide);
+            else if (SpeedRow.TryParse(text, out var speed))
+                SetRowAtCursor(speed);
             else
-                System.Media.SystemSounds.Beep.Play();   // 1xx tops out at 7F, 2xx at 80
+                System.Media.SystemSounds.Beep.Play();   // 1xx tops out at 7F, 2xx at 80, Fxy's x starts at 1
         }
 
         Invalidate();
@@ -2571,8 +2587,8 @@ public sealed class TrackerGridControl : Control
 
         if (resolved is null)
         {
-            if (PendingSlideText(channel, row) is { } typing)
-                g.DrawString(typing, GridFont, BrushSlide, x + MarkerColWidth + 2, y + 1);
+            if (PendingEffectText(channel, row) is { } typing)
+                g.DrawString(typing, GridFont, typing[0] == 'F' ? BrushSpeed : BrushSlide, x + MarkerColWidth + 2, y + 1);
             DrawCursorIfHere(g, channel, row, x, y, hasInstrument: false);
             return;
         }
@@ -2615,17 +2631,21 @@ public sealed class TrackerGridControl : Control
                 noteText = slide.Text;
                 noteBrush = BrushSlide;
                 break;
+            case SpeedRow speed:
+                noteText = speed.Text;
+                noteBrush = BrushSpeed;
+                break;
             default:
                 noteText = "?";
                 noteBrush = BrushHold;
                 break;
         }
 
-        // The slide being typed shows in the cursor's cell as it builds up: "1", "12_", ...
-        if (PendingSlideText(channel, row) is { } pending)
+        // A slide or speed row being typed shows in the cursor's cell as it builds up: "1", "12_", ...
+        if (PendingEffectText(channel, row) is { } pending)
         {
             noteText = pending;
-            noteBrush = BrushSlide;
+            noteBrush = pending[0] == 'F' ? BrushSpeed : BrushSlide;
             instText = null;
         }
 
@@ -2639,10 +2659,10 @@ public sealed class TrackerGridControl : Control
         DrawCursorIfHere(g, channel, row, x, y, hasInstrument: instText is not null);
     }
 
-    /// <summary>The slide being typed, padded out with underscores, for the cursor's cell only.</summary>
-    private string? PendingSlideText(int channel, int row) =>
-        _slideEntry is not null && channel == _cursorChannel && row == _cursorRow
-            ? _slideEntry.PadRight(3, '_')
+    /// <summary>The slide or speed row being typed, padded out with underscores, for the cursor's cell only.</summary>
+    private string? PendingEffectText(int channel, int row) =>
+        _effectEntry is not null && channel == _cursorChannel && row == _cursorRow
+            ? _effectEntry.PadRight(3, '_')
             : null;
 
     private void DrawCursorIfHere(Graphics g, int channel, int row, int x, int y, bool hasInstrument)

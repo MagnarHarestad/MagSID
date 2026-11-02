@@ -172,9 +172,17 @@ public class ShowerTests
 
     [Theory]
     [MemberData(nameof(Songs))]
-    public void It_sounds_exactly_like_the_plain_player(string file)
+    public void It_sounds_exactly_like_the_plain_player(string file) => SoundsLikeThePlainPlayer(Load(file));
+
+    [Theory]
+    [InlineData("speed_only.s")]
+    [InlineData("speed_slide.s")]
+    [InlineData("speed_funk.s")]
+    public void It_sounds_exactly_like_the_plain_player_with_speed_rows(string file) =>
+        SoundsLikeThePlainPlayer(PatternsFileReader.Read(Path.Combine(AppContext.BaseDirectory, "Fixtures", file)));
+
+    private static void SoundsLikeThePlainPlayer(Song song)
     {
-        var song = Load(file);
         var machine = Boot(song);
         var shower = ShowerProgram.Build(song, "T", "A");
 

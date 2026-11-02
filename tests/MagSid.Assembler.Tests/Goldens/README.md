@@ -110,8 +110,17 @@ bytes, 69 with vibrato, 63 with slides, 80 with both. The Musicshower was not ca
 Old 26 rebuilt first; old and new then held the same SID state for 30000 frames on every song in `SongData` and
 the fixtures. `GateOff\` was checked against the emitter with `KeepsWaveform` switched on: all its image tests passed.
 
+`speed_only.bin`, `speed_slide.bin` and `speed_funk.bin` (and their `GateOff\` twins) were added on **2026-11-02**
+with Fxy rows, a pattern changing the speed and funk speed. `$D4`, the speed, the funk speed is a wait row, sharing
+its way in with `$D3` as `.effectrow`; `ONbeat.PlaySong` reloads with `lda Song_Next / eor Song_Delta / sta Song_Next /
+sta Song_Speed`, two zero-page bytes after `filter_delta` in place of `Song_Shuffle`, and `music.init` seeds them from
+`v_Song_Speed` and `v_Song_Funk`. `Tables.s` sets `v_speedrows` from its include-time scan, as it does `v_slide`. 24 bytes,
+22 beside slides, 4 more with a funk speed to seed, less funk's own 6. Same procedure, with the old images first rebuilt
+byte for byte: all eleven without Fxy rows, and the eleven in `GateOff\`, came out byte for byte as before. Unpacked
+digits rather than one nibble pair: packing saves a byte a row and costs 5 in the player.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
-the release, funk speed and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
+the release, funk speed, Fxy rows and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 
 `opcodes.txt` is the emitter's opcode table, one `mnemonic mode hex` line each, frozen after

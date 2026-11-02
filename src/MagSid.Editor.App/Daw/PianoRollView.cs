@@ -1588,7 +1588,7 @@ internal sealed class PianoRollView : Control
     private static int DraggableLength(Pattern pattern, int row)
     {
         int length = 1;
-        for (int next = row + 1; next < pattern.Rows.Count && pattern.Rows[next] is HoldRow or NoteOffRow or SlideRow; next++)
+        for (int next = row + 1; next < pattern.Rows.Count && pattern.Rows[next] is HoldRow or NoteOffRow or SlideRow or SpeedRow; next++)
         {
             length++;
         }
@@ -1694,6 +1694,13 @@ internal sealed class PianoRollView : Control
     {
         Focus();
         HideInstrumentLabel();
+
+        // The ruler: right-click sets a speed change on that column's row.
+        if (e.Button == MouseButtons.Right && e.Y < RulerHeight && e.X >= KeyboardWidth && _pattern is { } timed)
+        {
+            ShowSpeedMenu(timed, e.Location);
+            return;
+        }
 
         // Which pass a click in the grid, the beat bar or the slide lane lands on.
         if (e.X >= KeyboardWidth && e.Y >= BeatBarTop && _pattern is not null)
@@ -2138,6 +2145,69 @@ internal sealed class PianoRollView : Control
         Invalidate();
     }
 
+    /// <summary>
+    /// A speed change on a row, as its frames a row and its funk speed: the "Fxy" the tracker types.
+    /// It takes a row a note is held over or nothing plays on, like a slide; a note, a release, a
+    /// slide or a loop marker has that place already.
+    /// </summary>
+    private void ShowSpeedMenu(Pattern pattern, Point point)
+    {
+        int row = RowOf(ColumnAtX(point.X));
+        if (_song is not { } song || row < 0 || row >= pattern.Rows.Count)
+            return;
+
+        _selectedRow = row;
+        Invalidate();
+
+        if (pattern.Rows[row] is not (HoldRow or SpeedRow))
+        {
+            Notice?.Invoke("A speed change takes a row of its own - this one has a note, a release, a slide or a loop marker.");
+            return;
+        }
+
+        var current = pattern.Rows[row] as SpeedRow;
+        int speed = current?.Speed ?? Math.Min(song.Speed, SpeedRow.MaxFrames - 1);
+
+        void Set(PatternRow written)
+        {
+            pattern.Rows[row] = written;
+            Commit();
+        }
+
+        var speeds = new ToolStripMenuItem("Speed - frames a row");
+        var funks = new ToolStripMenuItem("Funk - frames every second row");
+        funks.DropDownItems.Add(new ToolStripMenuItem("No funk", null, (_, _) => Set(new SpeedRow(speed, speed)))
+        {
+            Checked = current is not null && current.Funk == current.Speed,
+        });
+
+        for (int frames = 1; frames <= SpeedRow.MaxFrames; frames++)
+        {
+            int value = frames - 1;
+            speeds.DropDownItems.Add(new ToolStripMenuItem(frames.ToString(), null, (_, _) =>
+                Set(new SpeedRow(value, current is null || current.Funk == current.Speed ? value : current.Funk)))
+            {
+                Checked = current?.Speed == value,
+            });
+            funks.DropDownItems.Add(new ToolStripMenuItem(frames.ToString(), null, (_, _) => Set(new SpeedRow(speed, value)))
+            {
+                Checked = current is not null && current.Funk != current.Speed && current.Funk == value,
+            });
+        }
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(speeds);
+        menu.Items.Add(funks);
+        if (current is not null)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripMenuItem($"Remove {current.Text}", null, (_, _) => Set(new HoldRow())));
+        }
+
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        menu.Show(this, point);
+    }
+
     private void Commit()
     {
         Reread();
@@ -2276,6 +2346,35 @@ internal sealed class PianoRollView : Control
             g.DrawLine(tick, x, 14, x, RulerHeight);
             string label = _grid == RollGrid.Beats ? ((column / 16) + 1).ToString() : column.ToString("X2");
             g.DrawString(label, font, strong, x + 3, 6);
+        }
+
+        DrawSpeedTags(g, pattern, font);
+    }
+
+    /// <summary>The pattern's speed rows, on every pass of a loop they play on, as a tag under the
+    /// ruler's numbers. One column is RowWidth, room for the three characters of "F64".</summary>
+    private void DrawSpeedTags(Graphics g, Pattern pattern, Font font)
+    {
+        if (!pattern.Rows.Exists(static row => row is SpeedRow))
+            return;
+
+        using var fill = new SolidBrush(DawPalette.WithAlpha(DawPalette.Oscillator, 60));
+        using var ink = new SolidBrush(DawPalette.Oscillator);
+
+        int first = Math.Max(0, _scrollX.Value / RowWidth);
+        int last = Math.Min(ColumnCount - 1, (_scrollX.Value + Width - KeyboardWidth) / RowWidth);
+        for (int column = first; column <= last; column++)
+        {
+            int row = RowOf(column);
+            if (row < 0 || row >= pattern.Rows.Count || pattern.Rows[row] is not SpeedRow speed)
+                continue;
+
+            int x = KeyboardWidth + (column * RowWidth) - _scrollX.Value;
+            if (x < KeyboardWidth || x < _headerTextRight)
+                continue;
+
+            g.FillRectangle(fill, x, 14, RowWidth, RulerHeight - 14);
+            g.DrawString(speed.Text, font, ink, x + 1, 14);
         }
     }
 

@@ -525,6 +525,9 @@ public static partial class PatternsFileReader
             _ when noteText.Length == 3 && noteText[0] is '1' or '2' && char.IsAsciiHexDigit(noteText[1]) =>
                 throw Error(sourceName, lineNumber,
                     $"'{noteText}' is not a slide: 1xx goes up to 17F, 2xx down to 280."),
+            _ when SpeedRow.TryParse(noteText, out var speed) => speed,
+            _ when noteText.Length == 3 && noteText[0] == 'F' && char.IsAsciiHexDigit(noteText[1]) && char.IsAsciiHexDigit(noteText[2]) =>
+                throw Error(sourceName, lineNumber, $"'{noteText}' is not a speed: Fxy needs x from 1 to F."),
             _ => new NoteRow(ParseNoteOrThrow(sourceName, lineNumber, noteText), instrumentNumber),
         };
     }

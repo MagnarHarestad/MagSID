@@ -148,6 +148,7 @@ public static class PatternsFileWriter
         HoldRow => "\"...\", 00",
         NoteOffRow => "\"---\", 00",
         SlideRow slide => $"\"{slide.Text}\", 00",
+        SpeedRow speed => $"\"{speed.Text}\", 00",
         LoopStartRow => "LS",
         LoopEndRow(null) => "LE",
         LoopEndRow(var count) => $"LE{count:D2}",

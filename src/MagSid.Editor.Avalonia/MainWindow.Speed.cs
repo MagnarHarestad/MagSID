@@ -148,6 +148,9 @@ public sealed partial class MainWindow
             ? $"Rows alternate {song.Speed + 1} and {song.FunkSpeed + 1} frames long, from the song's first row - " +
               $"a swing. About {bpm} BPM at four rows a beat."
             : $"Every row lasts {song.Speed + 1} frames. About {bpm} BPM at four rows a beat.";
+
+        if (MagSid.Core.SongSizeCalculator.UsesSpeedRows(song))
+            _speedSummary.Text += " This is how the song starts: its F rows change the speed as it plays.";
     }
 
     /// <summary>Eight rows drawn to length, so a swing can be seen: the speed's rows and the funk

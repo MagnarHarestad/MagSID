@@ -53,6 +53,9 @@ internal sealed class ArrangeView : Control
     };
 
     private Song? _song;
+
+    /// <summary>Which patterns have a speed change, read once a paint rather than once a clip.</summary>
+    private readonly HashSet<int> _patternsWithSpeedRows = [];
     private int _selectedChannel;
     private int _selectedIndex = -1;
     private (int Channel, int Pattern) _announced = (-1, -1);
@@ -1717,6 +1720,13 @@ internal sealed class ArrangeView : Control
 
         DrawRuler(g, song);
 
+        _patternsWithSpeedRows.Clear();
+        foreach (var pattern in song.Patterns)
+        {
+            if (pattern.Rows.Exists(static row => row is SpeedRow))
+                _patternsWithSpeedRows.Add(pattern.Number);
+        }
+
         for (int channel = 0; channel < Song.ChannelCount; channel++)
             DrawLane(g, song, channel);
 
@@ -2054,6 +2064,14 @@ internal sealed class ArrangeView : Control
             using var font = new Font("Consolas", 7.5f);
             using var ink = new SolidBrush(colour);
             g.DrawString($"{patternNumber:00}", font, ink, clipped.X + 7, clipped.Y + 4);
+        }
+
+        // A speed change in the pattern moves every lane, so a clip says it has one.
+        if (clipped.Width > 34 && _patternsWithSpeedRows.Contains(patternNumber))
+        {
+            using var font = new Font("Consolas", 7.5f, FontStyle.Bold);
+            using var ink = new SolidBrush(DawPalette.Oscillator);
+            g.DrawString("F", font, ink, clipped.Right - 11, clipped.Y + 4);
         }
 
         if (restart)

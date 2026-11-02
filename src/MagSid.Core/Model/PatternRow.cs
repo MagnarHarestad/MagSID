@@ -51,6 +51,39 @@ public sealed record SlideRow(int Rate) : PatternRow
     }
 }
 
+/// <summary>
+/// A speed change: "Fxy" where a note would be, x the frames a row and y the frames every second
+/// row, one hex digit each, the way the toolbar shows them. "F64" is rows of 6 and 4 frames, "F60"
+/// is 6 with no funk. It takes its row like a "..." does, the note sounding carries on, and it
+/// holds for the whole song, this row being the first at x - until the next one, and through the
+/// song's loop too. Speed and Funk are what the player keeps, one less, like Song.Speed.
+/// </summary>
+public sealed record SpeedRow(int Speed, int Funk) : PatternRow
+{
+    /// <summary>The most frames one hex digit can say.</summary>
+    public const int MaxFrames = 15;
+
+    /// <summary>How the row reads in the note column and the file: no funk is "Fx0".</summary>
+    public string Text => Funk == Speed ? $"F{Speed + 1:X}0" : $"F{Speed + 1:X}{Funk + 1:X}";
+
+    /// <summary>"F", then the speed 1..F and the funk speed 0..F, where 0 and the speed itself both
+    /// mean no funk. "F-4" and "F#4" are notes and stay out.</summary>
+    public static bool TryParse(string text, out SpeedRow row)
+    {
+        row = new SpeedRow(0, 0);
+        if (text.Length != 3 || text[0] is not ('F' or 'f') || !char.IsAsciiHexDigit(text[1]) || !char.IsAsciiHexDigit(text[2]))
+            return false;
+
+        int speed = Convert.ToInt32(text[1..2], 16);
+        int funk = Convert.ToInt32(text[2..3], 16);
+        if (speed == 0)
+            return false;
+
+        row = new SpeedRow(speed - 1, (funk == 0 ? speed : funk) - 1);
+        return true;
+    }
+}
+
 /// <summary>Bare "LS" keyword line - moves the in-pattern loop anchor to the next real event.</summary>
 public sealed record LoopStartRow : PatternRow;
 

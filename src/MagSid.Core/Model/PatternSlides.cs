@@ -37,8 +37,8 @@ public static class PatternSlides
 
     /// <summary>
     /// Whether a slide can be put on a row: any hold or slide row. Not a note's own row or a note
-    /// off - a slide row takes the place of either - and not a loop marker, which has no time to
-    /// slide in. After a note off the release runs on and slides with it; before the pattern's
+    /// off - a slide row takes the place of either - not a speed row, which has that place already,
+    /// and not a loop marker, which has no time to slide in. After a note off the release runs on and slides with it; before the pattern's
     /// first note a slide carries on whatever the previous pattern left sounding.
     /// </summary>
     public static bool[] Slidable(Pattern pattern) =>

@@ -29,7 +29,9 @@ public sealed record LoopMarker(int Row, bool IsStart, int? RepeatCount);
 ///
 /// A slide row ("1xx"/"2xx") is a hold with an effect: the note sounds on through it, so it counts
 /// towards the note's length, and edits leave it where it is - like a controller lane, it belongs
-/// to the time it sits at rather than to the note that happens to be there.
+/// to the time it sits at rather than to the note that happens to be there. A speed row ("Fxy") is
+/// one too, and belongs to the time even more: nothing here writes over it, so a note or a release
+/// meant for its row is left out or goes to the row after.
 /// </summary>
 public static class PatternNotes
 {
@@ -71,18 +73,28 @@ public static class PatternNotes
     private static int HeldLength(IReadOnlyList<PatternRow> rows, int row)
     {
         int length = 1;
-        for (int next = row + 1; next < rows.Count && rows[next] is HoldRow or SlideRow; next++)
+        for (int next = row + 1; next < rows.Count && rows[next] is HoldRow or SlideRow or SpeedRow; next++)
             length++;
 
         return length;
     }
 
-    /// <summary>A row a note's length runs over becomes a hold - unless it is a slide, which is
-    /// a hold already and stays where it is.</summary>
+    /// <summary>A row a note's length runs over becomes a hold - unless it is a slide or a speed
+    /// change, which are holds already and stay where they are.</summary>
     private static void HoldOver(IList<PatternRow> rows, int row)
     {
-        if (rows[row] is not SlideRow)
+        if (rows[row] is not (SlideRow or SpeedRow))
             rows[row] = new HoldRow();
+    }
+
+    /// <summary>The first row at or after <paramref name="row"/> that is not a speed change: where
+    /// a release meant for that row can go.</summary>
+    private static int PastSpeedRows(IList<PatternRow> rows, int row)
+    {
+        while (row < rows.Count && rows[row] is SpeedRow)
+            row++;
+
+        return row;
     }
 
     /// <summary>Every LS and LE in the pattern, in row order.</summary>
@@ -224,7 +236,7 @@ public static class PatternNotes
         if (row < 0 || row >= rows.Count)
             return;
 
-        if (rows[row] is LoopStartRow or LoopEndRow)
+        if (rows[row] is LoopStartRow or LoopEndRow or SpeedRow)
             return;
 
         int allowed = Math.Clamp(length, 1, MaxLengthAt(pattern, row));
@@ -270,8 +282,9 @@ public static class PatternNotes
             // event, and the note ends up longer than asked. A release where it should stop keeps
             // the length exactly what was asked for, which is what a drag that grows a note one
             // beat at a time relies on.
-            if (row + allowed < rows.Count && rows[row + allowed] is HoldRow or SlideRow)
-                rows[row + allowed] = new NoteOffRow();
+            int beyond = PastSpeedRows(rows, row + allowed);
+            if (beyond < rows.Count && rows[beyond] is HoldRow or SlideRow)
+                rows[beyond] = new NoteOffRow();
 
             KeepSlides(pattern, row, slides);
             return true;
@@ -279,8 +292,13 @@ public static class PatternNotes
 
         // Shortening: the note stops, which means a release at the first row it no longer covers.
         // The rows after that stay holds and now extend the release instead, which is the same
-        // shape a hand-written pattern has.
-        rows[row + allowed] = new NoteOffRow();
+        // shape a hand-written pattern has. Speed rows keep their place, so with only those left
+        // before the note's end there is nowhere to stop it sooner.
+        int stop = PastSpeedRows(rows, row + allowed);
+        if (stop >= row + current)
+            return false;
+
+        rows[stop] = new NoteOffRow();
 
         // The release that used to end the note now comes after silence, and says nothing - it
         // would only cost a byte in the export and draw a second release block in the roll.
@@ -325,14 +343,17 @@ public static class PatternNotes
     public static void SetRelease(Pattern pattern, int row, int length = 1)
     {
         var rows = pattern.Rows;
-        if (row < 0 || row >= rows.Count || rows[row] is LoopStartRow or LoopEndRow)
+        if (row < 0 || row >= rows.Count || rows[row] is LoopStartRow or LoopEndRow or SpeedRow)
             return;
 
         int allowed = Math.Clamp(length, 1, MaxLengthAt(pattern, row));
 
         rows[row] = new NoteOffRow();
         for (int i = 1; i < allowed; i++)
-            rows[row + i] = new HoldRow();
+        {
+            if (rows[row + i] is not SpeedRow)
+                rows[row + i] = new HoldRow();
+        }
     }
 
     /// <summary>Moves a note to another row and pitch, keeping its length where the new place
@@ -343,7 +364,7 @@ public static class PatternNotes
         if (fromRow < 0 || fromRow >= rows.Count || rows[fromRow] is not NoteRow existing)
             return;
 
-        if (toRow < 0 || toRow >= rows.Count || rows[toRow] is LoopStartRow or LoopEndRow)
+        if (toRow < 0 || toRow >= rows.Count || rows[toRow] is LoopStartRow or LoopEndRow or SpeedRow)
             return;
 
         int length = HeldLength(rows, fromRow);
@@ -402,8 +423,8 @@ public static class PatternNotes
     /// Writes notes in at given rows, each exactly as long as given - what pasting copied notes
     /// and putting moved ones down both come to.
     ///
-    /// A note is cut short by a loop marker or the end of the pattern, and one landing on a marker
-    /// or past the end is left out; neither makes the pattern longer. A release follows each note
+    /// A note is cut short by a loop marker or the end of the pattern, and one landing on a marker,
+    /// a speed row or past the end is left out; neither makes the pattern longer. A release follows each note
     /// that would otherwise ring on into holds, and a note written over another replaces it - this
     /// format plays one note at a time.
     /// </summary>
@@ -412,7 +433,7 @@ public static class PatternNotes
         var rows = pattern.Rows;
         foreach (var (row, note, instrument, length) in notes.OrderBy(n => n.Row))
         {
-            if (row < 0 || row >= rows.Count || rows[row] is LoopStartRow or LoopEndRow)
+            if (row < 0 || row >= rows.Count || rows[row] is LoopStartRow or LoopEndRow or SpeedRow)
                 continue;
 
             SetNote(pattern, row, note, instrument, length);
@@ -459,7 +480,7 @@ public static class PatternNotes
         {
             switch (rows[next])
             {
-                case HoldRow or NoteOffRow or SlideRow:
+                case HoldRow or NoteOffRow or SlideRow or SpeedRow:
                     continue;
 
                 case NoteRow:
@@ -481,7 +502,7 @@ public static class PatternNotes
     ///
     /// The release is only written when something is sounding there - after a release or at the
     /// very start of the pattern the range is silent already, and a release would be a byte spent
-    /// on saying so twice. Loop markers stay: they are structure, not content. Notes that started
+    /// on saying so twice. Loop markers and speed rows stay: they are structure, not content. Notes that started
     /// inside the range and held on past its end go with it, since their holds now extend the
     /// silence instead.
     /// </summary>
@@ -503,7 +524,7 @@ public static class PatternNotes
         int firstPlayable = -1;
         for (int r = fromRow; r <= toRow; r++)
         {
-            if (rows[r] is LoopStartRow or LoopEndRow)
+            if (rows[r] is LoopStartRow or LoopEndRow or SpeedRow)
                 continue;
 
             if (firstPlayable < 0)
@@ -521,7 +542,7 @@ public static class PatternNotes
         // sounds before it depends on which pass of the loop is playing.
         for (int next = toRow + 1; next < rows.Count; next++)
         {
-            if (rows[next] is HoldRow or SlideRow)
+            if (rows[next] is HoldRow or SlideRow or SpeedRow)
                 continue;
 
             if (rows[next] is NoteOffRow)
@@ -555,7 +576,7 @@ public static class PatternNotes
         var playable = new List<int>();
         for (int r = fromRow; r <= toRow; r++)
         {
-            if (rows[r] is not (LoopStartRow or LoopEndRow))
+            if (rows[r] is not (LoopStartRow or LoopEndRow or SpeedRow))
                 playable.Add(r);
         }
 

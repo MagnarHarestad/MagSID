@@ -18,7 +18,8 @@ public static class SongImageBuilder
         Vibrato: song.Instruments.Any(i => i.HasVibrato),
         Slide: Core.SongSizeCalculator.UsesSlide(song),
         SoftHardRestart: song.Instruments.Any(i => i.SoftHardRestart),
-        Funk: song.HasFunk);
+        Funk: song.HasFunk,
+        SpeedRows: Core.SongSizeCalculator.UsesSpeedRows(song));
 
     /// <summary>Emits at <paramref name="loadAddress"/>. Nothing is position-fixed - the player has
     /// no alignment requirements and no baked-in addresses - so this is the whole of relocation. The

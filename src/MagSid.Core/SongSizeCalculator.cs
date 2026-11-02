@@ -61,6 +61,16 @@ public static class SongSizeCalculator
     /// <summary>Funk speed's reload (lda/eor/sta/eor/sta) in place of move8's lda/sta.</summary>
     private const int FunkBytes = 6;
 
+    /// <summary>Fxy rows, in a song with no slides and no funk: $D4's dispatch and handler, a reload
+    /// from two zero-page bytes, and seeding the first of them.</summary>
+    private const int SpeedRowBytes = 24;
+
+    /// <summary>With slides, $D3 has paid for most of the dispatch.</summary>
+    private const int SpeedRowSharedWithSlide = 2;
+
+    /// <summary>With funk speed, a second seed - and the reload above replaces funk's own.</summary>
+    private const int SpeedRowFunkSeedBytes = 4;
+
     /// <summary>The cpy/bcs that keeps instruments without vibrato out of the vibrato tables.</summary>
     private const int VibratoCompareBytes = 4;
 
@@ -86,10 +96,15 @@ public static class SongSizeCalculator
     private const int CmdWait = 0xD1;
     private const int CmdLoopEnd = 0xD2;
     private const int CmdSlide = 0xD3;
+    private const int CmdSpeed = 0xD4;
 
     /// <summary>A "1xx"/"2xx" row anywhere in the song - what assembles the slide code in.</summary>
     public static bool UsesSlide(Song song) =>
         song.Patterns.Any(p => p.Rows.Any(r => r is SlideRow));
+
+    /// <summary>An "Fxy" row anywhere in the song - what assembles the speed code in.</summary>
+    public static bool UsesSpeedRows(Song song) =>
+        song.Patterns.Any(p => p.Rows.Any(r => r is SpeedRow));
 
     public static SongSize Measure(Song song)
     {
@@ -107,7 +122,9 @@ public static class SongSizeCalculator
         if (!HardRestart.KeepsWaveform && song.Instruments.Any(i => i.SoftHardRestart))
             player += SoftHardRestartBytes;
 
-        if (song.HasFunk)
+        if (UsesSpeedRows(song))
+            player += SpeedRowBytes - (anySlide ? SpeedRowSharedWithSlide : 0) + (song.HasFunk ? SpeedRowFunkSeedBytes : 0);
+        else if (song.HasFunk)
             player += FunkBytes;
 
         if (ComparesVibrato(song))
@@ -232,6 +249,17 @@ public static class SongSizeCalculator
                     SetState(null, duration);
                     stream.Add(CmdSlide);
                     stream.Add(slide.Rate & 0xFF);
+                    break;
+                }
+
+                case SpeedRow:
+                {
+                    int duration = 1 + CountHolds(idx + 1);
+                    consumedUntil = idx + duration - 1;
+                    SetState(null, duration);
+                    stream.Add(CmdSpeed);
+                    stream.Add(0);              // the speed
+                    stream.Add(0);              // and the funk speed
                     break;
                 }
 

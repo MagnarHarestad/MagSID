@@ -81,6 +81,7 @@ public static class PlayerProgram
     private const int CmdOff = 0xD0;
     private const int LoopEnd = 0xD2;
     private const int CmdSlide = 0xD3;
+    private const int CmdSpeed = 0xD4;
     private const int RowWait = 0xD1;
 
     /// <summary>A reaches Voice_PlayCurrent holding a note id or one of these, deliberately the same
@@ -126,7 +127,7 @@ public static class PlayerProgram
 
         EmitVoiceAdvanceOrder(asm, tables, zp, voiceAdvanceOrder);
         EmitVoiceAutomation(asm, tables, parameters, features, zp, voiceAutomation, voiceSetFreq);
-        EmitMusicInit(asm, parameters, zp, musicInit, voiceAdvanceOrder, shadows);
+        EmitMusicInit(asm, parameters, features, zp, musicInit, voiceAdvanceOrder, shadows);
         EmitMusicPlay(asm, tables, parameters, features, zp, musicPlay, voiceAutomation, voiceTick, onBeatPlaySong, shadows);
         EmitVoiceTick(asm, tables, features, zp, voiceTick, voiceAdvanceOrder);
         EmitVoicePlayCurrent(asm, tables, features, zp, voiceNoteOff, voiceSetFreq, shadows);
@@ -505,7 +506,7 @@ public static class PlayerProgram
     }
 
     private static void EmitMusicInit(
-        Emitter6502 asm, PlayerParameters parameters, ZeroPageLayout zp, Label entry, Label voiceAdvanceOrder,
+        Emitter6502 asm, PlayerParameters parameters, PlayerFeatures features, ZeroPageLayout zp, Label entry, Label voiceAdvanceOrder,
         PlayerShadows? shadows)
     {
         asm.Define(entry);
@@ -527,6 +528,16 @@ public static class PlayerProgram
         // The first voice's list starts at 0, as cleared; the others' are baked in here.
         asm.Move8(Imm(parameters.OrderStart2), Mem(zp.VoiceOrderPos + ZeroPageLayout.VoiceStride));
         asm.Move8(Imm(parameters.OrderStart3), Mem(zp.VoiceOrderPos + 2 * ZeroPageLayout.VoiceStride));
+
+        if (features.SpeedRows && features.Funk)
+        {
+            asm.Move8(Imm(parameters.FunkSpeed), Mem(zp.SongNext));   // so the first reload gives the speed
+            asm.Move8(Imm(parameters.SongSpeed ^ parameters.FunkSpeed), Mem(zp.SongDelta));
+        }
+        else if (features.SpeedRows)
+        {
+            asm.Move8(Imm(parameters.SongSpeed), Mem(zp.SongNext));   // Song_Delta is 0, as cleared: one speed
+        }
 
         asm.Ldx(LastVoice(parameters));
         var initChannel = asm.DefineHere(".initchannel");
@@ -553,7 +564,16 @@ public static class PlayerProgram
 
         // --- ONbeat.PlaySong ---
         asm.Define(onBeatPlaySong);
-        if (features.Funk)
+        if (features.SpeedRows)
+        {
+            // Fxy rows: Song_Next flips with the two speeds' difference, as the shuffle does below,
+            // but both are bytes a row can change.
+            asm.Lda(Mem(zp.SongNext));
+            asm.Eor(Mem(zp.SongDelta));
+            asm.Sta(Mem(zp.SongNext));
+            asm.Sta(Mem(zp.SongSpeed));
+        }
+        else if (features.Funk)
         {
             // Funk speed: Song_Shuffle starts at 0 and flips with the speeds' difference every
             // tick, so the tick lengths run v_Song_Speed, v_Song_Funk, ... - no init code needed.
@@ -656,6 +676,7 @@ public static class PlayerProgram
         var advance = asm.NewLabel(".advance");
         var loopBack = asm.NewLabel(".loopback");
         var endOfPattern = asm.NewLabel(".endofpattern");
+        var effectRow = asm.NewLabel(".effectrow");
         var slide = asm.NewLabel(".slide");
 
         // Count down first and test the result rather than testing for zero then decrementing: a
@@ -687,10 +708,10 @@ public static class PlayerProgram
         // $D0/$D1 - note off and wait are stored as the command byte itself, which is what
         // NOTE_OFF/ROW_WAIT are defined to be. Falls through on $D2 into .loopend, which is why
         // that block has to stay right here.
-        if (features.Slide)
+        if (features.Slide || features.SpeedRows)
         {
             asm.Bcc(playRow);
-            asm.Bne(slide);                         // $D3, only in a song with slide rows
+            asm.Bne(effectRow);                     // $D3/$D4, only in a song with those rows
         }
         else
         {
@@ -743,14 +764,35 @@ public static class PlayerProgram
         asm.Iny();
         asm.Bne(nextCmd);                           // always - a pattern never reaches offset 0 here
 
-        if (features.Slide)
+        if (features.Slide || features.SpeedRows)
         {
-            // $D3, then the signed rate: a wait row that also sets the voice's slide, so it leaves
-            // as ROW_WAIT with Y on the rate byte - .playrow steps past it.
-            asm.Define(slide);
+            // $D3 and the signed rate, or $D4, the speed and the funk speed: a wait row that also
+            // sets them, so it leaves as ROW_WAIT with Y on the last byte - .playrow steps past it.
+            asm.Define(effectRow);
+            if (features.Slide && features.SpeedRows)
+                asm.Cmp(Imm(CmdSpeed));             // C set for $D4, and neither iny nor lda touch it
             asm.Iny();
             asm.Lda(IndY(zp.ZpLb));
-            asm.Sta(MemX(zp.VoiceSlide));
+
+            if (features.SpeedRows)
+            {
+                if (features.Slide)
+                    asm.Bcc(slide);
+                asm.Sta(Mem(zp.SongSpeed));         // this row already lasts the new speed
+                asm.Sta(Mem(zp.SongNext));
+                asm.Iny();
+                asm.Eor(IndY(zp.ZpLb));
+                asm.Sta(Mem(zp.SongDelta));
+                if (features.Slide)
+                    asm.Bytes(0x2C);                // bit abs, stepping over the sta
+            }
+
+            if (features.Slide)
+            {
+                asm.Define(slide);
+                asm.Sta(MemX(zp.VoiceSlide));
+            }
+
             asm.Lda(Imm(RowWait));
         }
 

@@ -1,14 +1,15 @@
 --- Code/musicplayer.s
 +++ Code/musicplayer.s
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,8 @@
  		var CMD_OFF   = $d0
  		var CMD_WAIT  = $d1
  		var LOOP_END  = $d2
 +		var CMD_SLIDE = $d3
++		var CMD_SPEED = $d4
  
  		; $00 terminates both the note stream and the song-order stream, and costs nothing
  		; to test for - the lda that fetches the byte already sets Z, so a bare beq does it.
-@@ -29,73 +30,57 @@
+@@ -29,73 +31,62 @@
  		var ROW_WAIT  = CMD_WAIT
  
  
@@ -75,8 +76,18 @@
 +			if v_slide_scan then add("voice_slide") end
 +
 +			local scalars = { "Song_Speed", "filter_pos", "filter_phase", "filter_delta" }
-+			if v_funk_scan then scalars[#scalars + 1] = "Song_Shuffle" end
-+
++			if v_speed_scan then
++				scalars[#scalars + 1] = "Song_Next"
++				scalars[#scalars + 1] = "Song_Delta"
++			elseif v_funk_scan then
++				scalars[#scalars + 1] = "Song_Shuffle"
+ 			end
+-		}
+-		endif
+ 
+-		m_ZP.b "filter_pos"
+-		m_ZP.b "filter_phase"
+-		m_ZP.b "filter_delta"
 +			local slots, last = {}, -1
 +			for i, name in ipairs(arrays) do
 +				local at = math.floor((i - 1) / 7) * 21 + (i - 1) % 7
@@ -90,14 +101,9 @@
 +					next_scalar = next_scalar + 1
 +				end
 +				table.insert(__ZPs, slots[at])
- 			end
++			end
 +			for i = next_scalar, #scalars do table.insert(__ZPs, scalars[i]) end
- 		}
--		endif
--
--		m_ZP.b "filter_pos"
--		m_ZP.b "filter_phase"
--		m_ZP.b "filter_delta"
++		}
  
  		m_CreateZPs "up", addr.music.zp, "Zero Page MusicPlayer"
  		lua asm('const ZP_Player_Start = ', ZPstart)
@@ -116,7 +122,7 @@
  
  		; --- MUSIC PLAYER LOCATION --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  		org addr.music.loc, "M_Music Player - JMPs for Init and Play"
-@@ -109,16 +94,6 @@
+@@ -109,16 +100,6 @@
  
  		org @, "M_Music Player - Shared voice subroutines"
  
@@ -133,7 +139,7 @@
  Voice_AdvanceOrder:
  .read:
  		ldy voice_orderpos,x
-@@ -138,157 +113,48 @@
+@@ -138,157 +119,48 @@
  		sta voice_orderpos,x
  		jmp .read
  
@@ -315,7 +321,7 @@
  		pla                                    ; the delta again. None of pla/and/beq/lda
  		and #$80                               ; touches the carry flag either
  		beq .pwhigh
-@@ -297,7 +163,7 @@
+@@ -297,7 +169,7 @@
  		adc voice_pw_hi,x
  		and #$0f
  		sta voice_pw_hi,x
@@ -324,7 +330,7 @@
  
  .arpentry:
  		; Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
-@@ -305,92 +171,74 @@
+@@ -305,92 +177,74 @@
  		; expressible.
  		ldy voice_arp_pos,x
  		if def v_freqmod
@@ -469,7 +475,7 @@
  		eor voice_vib_dir,x
  		adc voice_off_lo,x
  		sta voice_off_lo,x
-@@ -398,26 +246,22 @@
+@@ -398,26 +252,22 @@
  		adc voice_off_hi,x
  		sta voice_off_hi,x
  		dec voice_vib_cnt,x
@@ -500,13 +506,21 @@
  		rts
  		endif
  
-@@ -438,18 +282,19 @@
+@@ -438,18 +288,27 @@
  		if def musicshower
  		move8 #$0f, show_d418
  		endif
 -		ldx #v_channels-1
 +		move8 #v_ord_start2, voice_orderpos_2  ; the first channel's list starts at 0, as cleared
 +		move8 #v_ord_start3, voice_orderpos_3
++		if def v_speedrows
++		if def v_Song_Funk
++		move8 #v_Song_Funk, Song_Next          ; so the first reload gives v_Song_Speed
++		move8 #v_Song_Speed ^ v_Song_Funk, Song_Delta
++		else
++		move8 #v_Song_Speed, Song_Next         ; Song_Delta is 0, as cleared: one speed
++		endif
++		endif
 +		ldx #(v_channels-1)*7
  .initchannel:
  		jsr Voice_AdvanceOrder                 ; preserves X
@@ -524,7 +538,7 @@
  
  		if def musicshower
  		show_d418:         .byte 0            ; shadows of the three write-only filter registers
-@@ -465,10 +310,11 @@
+@@ -465,10 +324,11 @@
  		; Wavetables first and on every frame - that is what gives them frame resolution. Counting
  		; down saves the cpx; it reverses the write order within a frame, but the writes and the
  		; per-frame register state are identical and the voices are independent, so it is inaudible.
@@ -538,7 +552,7 @@
  		bpl .nextvoice
  
  Filter_Play:
-@@ -477,27 +323,27 @@
+@@ -477,27 +337,27 @@
  		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
  		ldx filter_pos
  		beq .filterdone                        ; nothing has claimed the filter yet
@@ -571,11 +585,18 @@
  .filtercut:
  		sta $d416
  		if def musicshower
-@@ -529,16 +375,27 @@
+@@ -529,16 +389,34 @@
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
-+		if def v_Song_Funk
++		if def v_speedrows
++		; Fxy rows: Song_Next flips with the two speeds' difference, as the shuffle does below,
++		; but both are bytes a row can change.
++		lda Song_Next
++		eor Song_Delta
++		sta Song_Next
++		sta Song_Speed
++		elseif def v_Song_Funk
 +		; Funk speed: Song_Shuffle starts at 0 and flips with the speeds' difference every tick, so
 +		; the tick lengths run v_Song_Speed, v_Song_Funk, v_Song_Speed... - no init code needed.
 +		lda Song_Shuffle
@@ -601,7 +622,7 @@
  		bpl .nextchannel
  		rts
  
-@@ -547,8 +404,6 @@
+@@ -547,8 +425,6 @@
  ; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
  
  Voice_Tick:
@@ -610,7 +631,7 @@
  		; Count down first and test the result rather than testing for zero then decrementing: a row
  		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
  		; voice_duration from voice_rowdur first.
-@@ -557,10 +412,11 @@
+@@ -557,10 +433,11 @@
  		rts
  
  .fetch:
@@ -626,20 +647,20 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +428,12 @@
+@@ -572,7 +449,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
-+		if def v_slide
++		if def v_effectrows
 +		bcc .playrow
-+		bne .slide                             ; $D3, only in a song with slide rows
++		bne .effectrow                         ; $D3/$D4, only in a song with those rows
 +		else
  		bne .playrow                           ; $D0/$D1 - note off and wait are stored as the
 +		endif
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -604,6 +465,10 @@
+@@ -604,6 +486,10 @@
  		tay                                    ; same reasoning - jump straight in with Y set
  		jmp .nextcmd
  
@@ -650,19 +671,40 @@
  		; Masking rather than subtracting: the dispatch above already proved which range the
  		; byte is in, so the low bits are the value and a single AND isolates them - one byte
  		; less than sec/sbc, and it leaves no carry to think about.
-@@ -621,18 +486,103 @@
+@@ -621,18 +507,124 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
 -.playrow:
 -		sta voice_note,x
++		if def v_effectrows
++		; $D3 and the signed rate, or $D4, the speed and the funk speed: a wait row that also sets
++		; them, leaving as ROW_WAIT with Y on the last byte so .playrow steps past it.
++.effectrow:
 +		if def v_slide
-+		; $D3, then the signed rate: a wait row that also sets the voice's slide, leaving as
-+		; ROW_WAIT with Y on the rate byte so .playrow steps past it.
-+.slide:
- 		iny
++		if def v_speedrows
++		cmp #CMD_SPEED                         ; C set for $D4, and neither iny nor lda touch it
++		endif
++		endif
++		iny
 +		lda (ZP_lb),y
++		if def v_speedrows
++		if def v_slide
++		bcc .slide
++		endif
++		sta Song_Speed                         ; this row already lasts the new speed
++		sta Song_Next
+ 		iny
++		eor (ZP_lb),y
++		sta Song_Delta
++		if def v_slide
++		.byte $2c                              ; bit abs, stepping over the sta
++		endif
++		endif
++		if def v_slide
++.slide:
 +		sta voice_slide,x
++		endif
 +		lda #ROW_WAIT
 +		endif
 +.playrow:
@@ -765,7 +807,7 @@
  ; tbl_rows_lo/hi, tbl_songorder, ad_table, sr_table, wt_start/wt_data, arp_start/arp_data,
 --- Startup/Tables.s
 +++ Startup/Tables.s
-@@ -66,6 +66,18 @@
+@@ -66,6 +66,31 @@
      return note:upper()
  end
  
@@ -781,10 +823,23 @@
 +    return rate
 +end
 +
++-- "Fxy" sets the speed and funk speed, in frames a row, one hex digit each - a row in place of a
++-- note. y = 0 is no funk. Returns the two as the player keeps them, one less; nil for anything else.
++local function SpeedRow(note)
++    local x, y = note:match("^F(%x)(%x)$")
++    if not x then
++        return nil
++    end
++    x, y = tonumber(x, 16), tonumber(y, 16)
++    assert(x > 0, "speed row with no speed: " .. note)
++    if y == 0 then y = x end
++    return x - 1, y - 1
++end
++
  -- "LE" (bare, loops forever) or "LE04" etc (finite repeat count, N times total).
  local function IsLE(tu)
      return tu == "LE" or tu:match("^LE%d+$") ~= nil
-@@ -100,6 +112,16 @@
+@@ -100,6 +125,16 @@
      asm("")
  end
  
@@ -801,16 +856,16 @@
  local function ParseSingleNoteLine(line)
      line = line:gsub(" ", "")
      if line == "" then
-@@ -501,7 +523,7 @@
+@@ -501,7 +536,7 @@
              local row = ParseSingleNoteLine(raw)
              if row then
                  local note = NormalizeNote(row.note)
 -                if note ~= "..." and note ~= "---" then
-+                if note ~= "..." and note ~= "---" and not SlideRate(note) then
++                if note ~= "..." and note ~= "---" and not SlideRate(note) and not SpeedRow(note) then
                      GetNoteID(note)
                  end
              end
-@@ -509,6 +531,25 @@
+@@ -509,6 +544,25 @@
      end
  end
  
@@ -836,15 +891,16 @@
  -- Arpeggio steps come out of the same dictionary as the patterns, which is the whole reason
  -- they are one byte each. Registered after the patterns so pattern encoding is unaffected by
  -- whether an instrument happens to arpeggiate.
-@@ -535,6 +576,7 @@
+@@ -535,6 +589,8 @@
  -- of Code\musicplayer.s). LS marks the loop anchor, LE emits $D2 + count + offset, $00 ends.
  
  local CMD_DUR, CMD_INST, CMD_OFF, CMD_WAIT, CMD_LOOP_END = 0x80, 0xC0, 0xD0, 0xD1, 0xD2
 +local CMD_SLIDE = 0xD3
++local CMD_SPEED = 0xD4
  local MAX_DURATION, MAX_INSTRUMENT = 64, 16
  
  local ptr_rows = {}
-@@ -576,7 +618,7 @@
+@@ -576,7 +632,7 @@
          if inst ~= nil and inst ~= cur_inst then
              assert(inst >= 1 and inst <= MAX_INSTRUMENT,
                  "PAT" .. NN .. ": instrument " .. inst .. " is out of range (1.." .. MAX_INSTRUMENT .. ")")
@@ -853,7 +909,7 @@
              cur_inst = inst
          end
          if dur ~= nil and dur ~= cur_dur then
-@@ -611,7 +653,7 @@
+@@ -611,7 +667,7 @@
              -- re-establishes them; nothing is inserted when the body left the state alone.
              local fixup = {}
              if ls_inst ~= nil and cur_inst ~= ls_inst then
@@ -862,7 +918,7 @@
              end
              if ls_dur ~= nil and cur_dur ~= ls_dur then
                  fixup[#fixup + 1] = CMD_DUR + ls_dur - 1
-@@ -672,6 +714,11 @@
+@@ -672,6 +728,18 @@
                      -- setting alone is exactly right and costs nothing.
                      SetState(nil, duration)
                      Emit(CMD_OFF)
@@ -871,10 +927,17 @@
 +                    SetState(nil, duration)
 +                    Emit(CMD_SLIDE)
 +                    Emit(SlideRate(note) % 256)
++                elseif SpeedRow(note) then
++                    -- A wait row that also sets the song's speeds: $D4, the speed, the funk speed.
++                    SetState(nil, duration)
++                    Emit(CMD_SPEED)
++                    local speed, funk = SpeedRow(note)
++                    Emit(speed)
++                    Emit(funk)
                  else
                      assert(instruments[row.inst] ~= nil,
                          "PAT" .. NN .. ": instrument " .. tostring(row.inst) .. " is not defined in INSTRUMENTS")
-@@ -695,7 +742,7 @@
+@@ -695,7 +763,7 @@
      ptr_rows[#ptr_rows + 1] = "tbl_rows_pat" .. NN
  end
  
@@ -883,7 +946,7 @@
  -- not per channel, so a pattern used by several channels points at the same rows.
  -- Krikkit syntax: label & 255 / label >> 8
  
-@@ -719,7 +766,7 @@
+@@ -719,7 +787,7 @@
      asm("")
  end
  
@@ -892,7 +955,7 @@
  
  -- Instrument tables (ad_table / sr_table / wt_start), indexed by instrument number - 1.
  -- wt_start points into wt_data, the shared pool of control-byte programs terminated by $00.
-@@ -868,27 +915,38 @@
+@@ -868,27 +936,38 @@
          pw_add_values[id]  = string.format("$%02x", add % 256)
      end
  
@@ -945,7 +1008,7 @@
      end
      assert(any_vibrato == (v_vibrato_scan == true),
          "vibrato scan disagrees with the parsed INSTRUMENTS - v_songfile must be set before " ..
-@@ -898,20 +956,6 @@
+@@ -898,20 +977,6 @@
          EmitByteTable("vib_depth:", vib_depth_values)
      end
  
@@ -966,7 +1029,7 @@
  end
  
  -- Song-order resolution per channel: a list of pattern numbers, optionally followed by
-@@ -1010,8 +1054,8 @@
+@@ -1010,8 +1075,8 @@
  asm("; --------------------------------------")
  asm("")
  
@@ -977,17 +1040,18 @@
  
  -- Note dictionary id -> chromatic index, for the musicshower's note column. The dictionary
  -- is first-occurrence order, so an id says nothing about pitch on its own. v_musicshower is
-@@ -1053,6 +1097,9 @@
+@@ -1053,6 +1118,10 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
 +    v_funk_scan = false
++    v_speed_scan = false
 +    local instruments_scan, vibrato_scan = 0, 0
 +    local funk = nil
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1063,14 +1110,25 @@
+@@ -1063,19 +1132,41 @@
              elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then
@@ -1000,6 +1064,7 @@
 +                end
              end
 +            if not in_instruments and t:match('^"[12]%x%x"') then v_slide_scan = true end
++            if not in_instruments and t:match('^"[Ff]%x%x"') then v_speed_scan = true end
 +            -- Funk speed: a second speed the ticks alternate with. Absent, the song keeps one.
 +            funk = funk or t:match("^var%s+v_Song_Funk%s*=%s*(%d+)$")
          end
@@ -1015,7 +1080,13 @@
      end
      if v_slide_scan then
          asm("var v_slide = 1")
-@@ -1078,4 +1136,8 @@
+     end
++    if v_speed_scan then
++        asm("var v_speedrows = 1")
++    end
++    if v_slide_scan or v_speed_scan then
++        asm("var v_effectrows = 1")
++    end
      if v_vibrato_scan or v_slide_scan then
          asm("var v_freqmod = 1")
      end

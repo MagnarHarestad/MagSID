@@ -17,7 +17,7 @@ The player is a low-memory-footprint rewrite of a GoatTracker-style player, writ
 418 bytes of code with neither optional effect, 500 with vibrato, 467 with slides and 526 with both,
 plus 10 bytes when an instrument uses soft hard restart and 4 when two or more instruments in a song
 with vibrato have none - which is what lets its tables, two bytes an instrument, cover only those that
-do. Code for an effect is only assembled when a
+do, and 24 when a pattern changes the speed with an Fxy row, 22 beside slides. Code for an effect is only assembled when a
 song uses it. A finished song lands at roughly 700–1150 bytes including the player.
 
 ## Using the editor

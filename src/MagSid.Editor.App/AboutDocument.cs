@@ -83,7 +83,10 @@ public static class AboutDocument
              "  '  /  Shift+'    Octave down / up\n" +
              "  Return           Note off (\"---\")\n" +
              "  Numpad 1 / 2     Slide up / down: then two hex digits (0-9, A-F) for the rate per\n" +
-             "                   frame, e.g. 120 or 210. 100 stops it. Esc cancels\n\n");
+             "                   frame, e.g. 120 or 210. 100 stops it. Esc cancels\n" +
+             "  F                Speed: then a hex digit for the frames a row and one for the funk\n" +
+             "                   speed, e.g. F64 for rows of 6 and 4 frames, F60 for 6 and no funk.\n" +
+             "                   It lasts until the next one, through the song's loop too. Esc cancels\n\n");
         Body("A held key sustains with the instrument's full program; up to three at once, one " +
              "per SID voice. A MIDI keyboard plays the same way once chosen under MIDI.\n\n");
 
@@ -92,7 +95,7 @@ public static class AboutDocument
         Body("Each channel has four fields:\n\n");
         Mono("  CH    Song order position (\"01→\"), RST01 marks the loop-back point\n" +
              "  PAT   Pattern number, and loop markers LS / LE04\n" +
-             "  NOT   Note, \"...\" hold, \"---\" note off, 1xx / 2xx slide (orange)\n" +
+             "  NOT   Note, \"...\" hold, \"---\" note off, 1xx / 2xx slide (orange), Fxy speed (blue)\n" +
              "  INS   Instrument number, 1-16 (two quick keys make two digits)\n\n");
         Body("A note off (\"---\") releases the gate and stops the wavetable; pulse sweep, note " +
              "program, vibrato and slide run on through the release.\n\n");
@@ -287,6 +290,18 @@ public static class AboutDocument
              "row and a note off take no slide (a dot); the release after a note off does. The " +
              "notes above show the glide the player will play, frame by frame, ending in a dot at " +
              "the pitch reached.\n\n");
+
+        Heading("Speed changes");
+        Mono("  Right-click the ruler   Set the speed and funk speed from that row on,\n" +
+             "                          or remove the change there\n\n");
+        Body("A speed change is an Fxy row, the same one the tracker types: F64 is rows of 6 and 4 " +
+             "frames, F60 is 6 and no funk. It shows as a tag in the ruler, and a clip with one in " +
+             "the arrangement has an F in its corner. It moves every channel, this row first, and " +
+             "lasts until the next one, through the song's loop too. If two channels change speed " +
+             "on one row, the lowest channel wins. It takes a row a note is held over or nothing " +
+             "plays on; notes drawn across it carry on through it. A note can't start on it and a " +
+             "release lands on the row after it. The player's speed code is only assembled for a " +
+             "song that has one: 24 bytes and 2 of zero page, plus 3 for each row.\n\n");
 
         Heading("Instrument page");
         Mono("  Click the name        Rename\n" +

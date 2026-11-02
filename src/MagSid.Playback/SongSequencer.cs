@@ -39,6 +39,12 @@ public sealed class SongSequencer
     /// the tick lengths it gives are what ONbeat.PlaySong's lda/eor/sta/eor/sta gives.</summary>
     private int _shuffle;
 
+    /// <summary>Song_Next and Song_Delta: the speed of the tick in progress and the two speeds'
+    /// difference, once an Fxy row has played. Null until then, and the song's own speeds run, so
+    /// a song without one still follows the toolbar while it plays.</summary>
+    private int? _rowSpeed;
+    private int _rowDelta;
+
     /// <summary>Frames played since the top of the song - carried through a resume, so it counts
     /// the music rather than this sequencer's own lifetime.</summary>
     private int _frame;
@@ -98,6 +104,8 @@ public sealed class SongSequencer
         // idiom via Song_Speed starting the countdown already expired).
         _speedCounter = resumeFrom?.SpeedCounter ?? -1;
         _shuffle = resumeFrom?.Shuffle ?? 0;
+        _rowSpeed = resumeFrom?.RowSpeed;
+        _rowDelta = resumeFrom?.RowDelta ?? 0;
         _frame = resumeFrom?.Frame ?? 0;
 
         for (int ch = 0; ch < 3; ch++)
@@ -497,7 +505,12 @@ public sealed class SongSequencer
         _speedCounter--;
         if (_speedCounter < 0)
         {
-            if (_song.HasFunk)
+            if (_rowSpeed is int rowSpeed)
+            {
+                _rowSpeed = rowSpeed ^ _rowDelta;
+                _speedCounter = _rowSpeed.Value;
+            }
+            else if (_song.HasFunk)
             {
                 _shuffle ^= _song.Speed ^ _song.FunkSpeed!.Value;
                 _speedCounter = _shuffle ^ _song.FunkSpeed.Value;
@@ -651,6 +664,13 @@ public sealed class SongSequencer
                 // A wait row that also sets the slide: the sounding note carries on and glides.
                 state.Voice.SetSlide(slide.Rate);
             }
+            else if (row is SpeedRow speed)
+            {
+                // A wait row that also sets the song's speeds, this row already lasting the first.
+                _speedCounter = speed.Speed;
+                _rowSpeed = speed.Speed;
+                _rowDelta = speed.Speed ^ speed.Funk;
+            }
             else if (row is NoteRow noteRow)
             {
                 // An instrument that is not there plays nothing new; the voice carries on.
@@ -767,12 +787,16 @@ public sealed class SongSequencer
     /// behind the live rastertime, needs to know.</param>
     /// <param name="Shuffle">Song_Shuffle at that instant - which of a funk song's two speeds the
     /// tick in progress has.</param>
-    public sealed record SequencerPosition(int SpeedCounter, IReadOnlyList<ChannelPlaybackState> Channels, int Frame = 0, int Shuffle = 0)
+    /// <param name="RowSpeed">Song_Next at that instant, once an Fxy row has played.</param>
+    /// <param name="RowDelta">Song_Delta at that instant.</param>
+    public sealed record SequencerPosition(
+        int SpeedCounter, IReadOnlyList<ChannelPlaybackState> Channels, int Frame = 0, int Shuffle = 0,
+        int? RowSpeed = null, int RowDelta = 0)
     {
-        /// <summary>The speed of the tick in progress: the song's own, or with funk speed the one
-        /// this tick was reloaded with.</summary>
+        /// <summary>The speed of the tick in progress: the last Fxy row's, or the song's own, or
+        /// with funk speed the one this tick was reloaded with.</summary>
         public int TickSpeed(MagSid.Core.Model.Song song) =>
-            song.HasFunk ? Shuffle ^ song.FunkSpeed!.Value : song.Speed;
+            RowSpeed ?? (song.HasFunk ? Shuffle ^ song.FunkSpeed!.Value : song.Speed);
     }
 
     /// <summary>The exact instant this sequencer is at. Taken by the playback engine once per
@@ -788,7 +812,7 @@ public sealed class SongSequencer
                 s.LoopStartRowIndex, s.LoopRepeatCounter, s.Duration, s.TicksIntoEntry);
         }
 
-        return new SequencerPosition(_speedCounter, channels, _frame, _shuffle);
+        return new SequencerPosition(_speedCounter, channels, _frame, _shuffle, _rowSpeed, _rowDelta);
     }
 
     private sealed class ChannelState
