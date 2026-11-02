@@ -321,7 +321,7 @@ public class ResumeTests
         var fromTop = Triggers(song, null, from!.Frame + 12);
         var started = Triggers(song, from, 12);
 
-        Assert.Equal("0:1:4 1:1:4 2:2:0", started[0]);
+        Assert.Equal("2:2:0 1:1:4 0:1:4", started[0]);
         Assert.Equal(fromTop.Skip(from.Frame), started);
     }
 
@@ -375,7 +375,7 @@ public class ResumeTests
         var started = Triggers(song, exact, 30);
 
         // Channels 2 and 3 play row 5; channel 1 is named on the hold it is already sounding.
-        Assert.Equal("1:2:5 2:2:5 0:1:5", started[0]);
+        Assert.Equal("2:2:5 1:2:5 0:1:5", started[0]);
         Assert.Equal(fromTop.Skip(exact.Frame + 1), started.Skip(1));
     }
 

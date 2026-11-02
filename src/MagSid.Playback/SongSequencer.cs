@@ -474,7 +474,9 @@ public sealed class SongSequencer
         _announceRestored = false;
         Array.Clear(_triggeredThisFrame);
 
-        for (int ch = 0; ch < 3; ch++)
+        // Channels 3, 2, 1, as the player's voice loops run: where two reach shared state on one
+        // tick, a filter claim for one, channel 1 has the last word.
+        for (int ch = 2; ch >= 0; ch--)
         {
             RunAutomation(ch);
         }
@@ -505,7 +507,7 @@ public sealed class SongSequencer
                 _speedCounter = _song.Speed;
             }
 
-            for (int ch = 0; ch < 3; ch++)
+            for (int ch = 2; ch >= 0; ch--)
             {
                 TickChannel(ch);
             }
