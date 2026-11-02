@@ -584,8 +584,16 @@ public sealed class TrackerGridControl : Control
             return;
         }
 
-        SetSongPosition(resolved.OrderIndex);
-        _cursorRow = resolved.Nth;
+        // The same row, in the numbering it played under. Moving the song position to its entry
+        // restarted the numbers there, row 1298 becoming row 18, and put the other channels at
+        // that entry too, which is another moment in a song whose channels differ in length.
+        // A song gone round its restart lands on that place's first pass.
+        if (resolved.OrderIndex < _songPosition)
+        {
+            _songPosition = 0;
+        }
+
+        _cursorRow = (FirstRowOfOrderEntry(reference, resolved.OrderIndex) ?? 0) + resolved.Nth;
         Invalidate();
     }
 
