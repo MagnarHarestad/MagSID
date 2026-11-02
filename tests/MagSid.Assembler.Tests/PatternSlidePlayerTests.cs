@@ -61,8 +61,8 @@ public class PatternSlidePlayerTests
 
     /// <summary>Vibrato with no slide in the song: a note program under a vibrato, a delayed
     /// vibrato, and an instrument without one - its note program included - which the player still
-    /// runs the vibrato code for, adding a depth of 0. The first pattern's loop also puts the
-    /// instrument back while the other one's note sounds on.</summary>
+    /// runs the vibrato code for, adding a depth of 0. The first pattern's loop also holds the
+    /// other instrument's note on across the jump back.</summary>
     private const string VibratoOnly = """
         var v_Song_Speed = 1
 

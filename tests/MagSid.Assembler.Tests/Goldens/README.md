@@ -119,8 +119,16 @@ sta Song_Speed`, two zero-page bytes after `filter_delta` in place of `Song_Shuf
 byte for byte: all eleven without Fxy rows, and the eleven in `GateOff\`, came out byte for byte as before. Unpacked
 digits rather than one nibble pair: packing saves a byte a row and costs 5 in the player.
 
+`airstrike.bin`, the four BellaCiao images, `funk_bellaciao.bin`, `magnificent.bin`, `sos.bin` and `speed_only.bin` (and
+their `GateOff\` twins) were reassembled later on **2026-11-02**, when `Tables.s` moved the loop's instrument restore:
+from the anchor, where it changed the instrument under the note still sounding for as long as a first row that is not a
+note lasted, to directly ahead of the body's first note. A first note with an instrument of its own gets none, which is
+what shrinks these songs (1 to 9 bytes; the byte was overwritten before anything read it). `loop_restore.bin` was added
+for the cases that do change. Same procedure, with the old images first rebuilt byte for byte. All the other images came
+out byte for byte as before, and old and new wrote the same SID registers for 30000 frames on every song in `SongData`.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
-the release, funk speed, Fxy rows and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
+the release, funk speed, Fxy rows, the loop restore and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 
 `opcodes.txt` is the emitter's opcode table, one `mnemonic mode hex` line each, frozen after

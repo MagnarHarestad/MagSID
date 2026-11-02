@@ -900,7 +900,17 @@
  local MAX_DURATION, MAX_INSTRUMENT = 64, 16
  
  local ptr_rows = {}
-@@ -576,7 +632,7 @@
+@@ -568,6 +624,9 @@
+     -- round or the second pass plays with the first pass's leftovers.
+     local ls_target, ls_inst, ls_dur = 0, nil, nil
+ 
++    -- Where the body's first note starts, and the instrument it asks for.
++    local ls_note_at, ls_note_inst = nil, nil
++
+     local function Emit(b)
+         stream[#stream + 1] = b
+     end
+@@ -576,7 +635,7 @@
          if inst ~= nil and inst ~= cur_inst then
              assert(inst >= 1 and inst <= MAX_INSTRUMENT,
                  "PAT" .. NN .. ": instrument " .. inst .. " is out of range (1.." .. MAX_INSTRUMENT .. ")")
@@ -909,16 +919,57 @@
              cur_inst = inst
          end
          if dur ~= nil and dur ~= cur_dur then
-@@ -611,7 +667,7 @@
-             -- re-establishes them; nothing is inserted when the body left the state alone.
-             local fixup = {}
-             if ls_inst ~= nil and cur_inst ~= ls_inst then
+@@ -599,6 +658,7 @@
+         if tu == "LS" then
+             ls_target = #stream                -- byte offset of the next thing emitted
+             ls_inst, ls_dur = cur_inst, cur_dur
++            ls_note_at, ls_note_inst = nil, nil
+         elseif IsLE(tu) then
+             -- The byte after $D2 is the repeat count: 0 = bare LE, loops forever; N = finite,
+             -- the marked section plays N times total before falling through.
+@@ -607,21 +667,29 @@
+                 "PAT" .. NN .. ": LE repeat count must be 0 (bare LE, loops forever) or 1..255: " .. raw)
+ 
+             -- If the body changed instrument or duration, the jump back would re-enter with the loop's
+-            -- end state rather than its start. Splice the needed commands in at the anchor so every pass
+-            -- re-establishes them; nothing is inserted when the body left the state alone.
+-            local fixup = {}
+-            if ls_inst ~= nil and cur_inst ~= ls_inst then
 -                fixup[#fixup + 1] = CMD_INST + ls_inst - 1
-+                fixup[#fixup + 1] = CMD_INST + inst_index[ls_inst]
++            -- end state rather than its start. The duration goes back at the anchor, since the first row
++            -- lasts it. The instrument goes back ahead of the first note, which would otherwise take it
++            -- from the end of the body: any earlier and the note still sounding would run on from the
++            -- wrong instrument. A first note with another instrument sets its own, and needs nothing.
++            local restore_inst = ls_inst ~= nil and cur_inst ~= ls_inst and ls_note_inst == ls_inst
++            if restore_inst then
++                table.insert(stream, ls_note_at + 1, CMD_INST + inst_index[ls_inst])
++                ls_note_inst = nil             -- a later LE on this anchor finds it there
              end
              if ls_dur ~= nil and cur_dur ~= ls_dur then
-                 fixup[#fixup + 1] = CMD_DUR + ls_dur - 1
-@@ -672,6 +728,18 @@
+-                fixup[#fixup + 1] = CMD_DUR + ls_dur - 1
+-            end
+-            for i, b in ipairs(fixup) do
+-                table.insert(stream, ls_target + i, b)
++                -- After an instrument put back at the same place, as it always was.
++                local at = ls_target + 1
++                if restore_inst and ls_note_at == ls_target then
++                    at = at + 1
++                end
++                table.insert(stream, at, CMD_DUR + ls_dur - 1)
++                if ls_note_at ~= nil then
++                    ls_note_at = ls_note_at + 1
++                end
+             end
+-            -- cur_inst/cur_dur deliberately keep the body's *end* state: the fixup runs at the top of
+-            -- the loop, so it only affects what each pass starts with. Resetting here would make the
+-            -- next row think it already had the anchor's instrument.
++            -- cur_inst/cur_dur deliberately keep the body's *end* state: the commands above run on the
++            -- way into the body, so they only affect what each pass starts with. Resetting here would
++            -- make the next row think it already had the anchor's instrument.
+ 
+             Emit(CMD_LOOP_END)
+             Emit(repeat_count)
+@@ -672,9 +740,24 @@
                      -- setting alone is exactly right and costs nothing.
                      SetState(nil, duration)
                      Emit(CMD_OFF)
@@ -937,7 +988,13 @@
                  else
                      assert(instruments[row.inst] ~= nil,
                          "PAT" .. NN .. ": instrument " .. tostring(row.inst) .. " is not defined in INSTRUMENTS")
-@@ -695,7 +763,7 @@
++                    if ls_note_at == nil then
++                        ls_note_at, ls_note_inst = #stream, row.inst
++                    end
+                     SetState(row.inst, duration)
+                     Emit(GetNoteID(note))
+                 end
+@@ -695,7 +778,7 @@
      ptr_rows[#ptr_rows + 1] = "tbl_rows_pat" .. NN
  end
  
@@ -946,7 +1003,7 @@
  -- not per channel, so a pattern used by several channels points at the same rows.
  -- Krikkit syntax: label & 255 / label >> 8
  
-@@ -719,7 +787,7 @@
+@@ -719,7 +802,7 @@
      asm("")
  end
  
@@ -955,7 +1012,7 @@
  
  -- Instrument tables (ad_table / sr_table / wt_start), indexed by instrument number - 1.
  -- wt_start points into wt_data, the shared pool of control-byte programs terminated by $00.
-@@ -868,27 +936,38 @@
+@@ -868,27 +951,38 @@
          pw_add_values[id]  = string.format("$%02x", add % 256)
      end
  
@@ -1008,7 +1065,7 @@
      end
      assert(any_vibrato == (v_vibrato_scan == true),
          "vibrato scan disagrees with the parsed INSTRUMENTS - v_songfile must be set before " ..
-@@ -898,20 +977,6 @@
+@@ -898,20 +992,6 @@
          EmitByteTable("vib_depth:", vib_depth_values)
      end
  
@@ -1029,7 +1086,7 @@
  end
  
  -- Song-order resolution per channel: a list of pattern numbers, optionally followed by
-@@ -1010,8 +1075,8 @@
+@@ -1010,8 +1090,8 @@
  asm("; --------------------------------------")
  asm("")
  
@@ -1040,7 +1097,7 @@
  
  -- Note dictionary id -> chromatic index, for the musicshower's note column. The dictionary
  -- is first-occurrence order, so an id says nothing about pitch on its own. v_musicshower is
-@@ -1053,6 +1118,10 @@
+@@ -1053,6 +1133,10 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
@@ -1051,7 +1108,7 @@
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1063,19 +1132,41 @@
+@@ -1063,19 +1147,41 @@
              elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then

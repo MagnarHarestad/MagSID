@@ -157,7 +157,8 @@ public static class SongSizeCalculator
     /// One pattern's byte stream, terminator included. Mirrors the emitter exactly: a note costs
     /// one byte and carries whatever instrument and duration are already current, so only a
     /// change emits a command; a run of "..." rows is folded into the preceding note's duration;
-    /// and LE splices the anchor's state back in when the body changed it.
+    /// and LE splices the anchor's state back in when the body changed it, the duration at the
+    /// anchor and the instrument ahead of the body's first note.
     /// </summary>
     public static int EncodedPatternLength(IReadOnlyList<PatternRow> rows) => EncodedLength(rows);
 
@@ -167,6 +168,7 @@ public static class SongSizeCalculator
         int? curInst = null, curDur = null;
         int lsTarget = 0;
         int? lsInst = null, lsDur = null;
+        int? lsNoteAt = null, lsNoteInst = null;
         int consumedUntil = -1;
 
         void SetState(int? inst, int? dur)
@@ -204,17 +206,25 @@ public static class SongSizeCalculator
                     lsTarget = stream.Count;
                     lsInst = curInst;
                     lsDur = curDur;
+                    lsNoteAt = null;
+                    lsNoteInst = null;
                     break;
 
                 case LoopEndRow(var repeatCount):
                 {
-                    var fixup = new List<int>();
-                    if (lsInst is not null && curInst != lsInst)
-                        fixup.Add(CmdInstrument + lsInst.Value - 1);
+                    bool restoreInst = lsInst is not null && curInst != lsInst && lsNoteInst == lsInst;
+                    if (restoreInst)
+                    {
+                        stream.Insert(lsNoteAt!.Value, CmdInstrument + lsInst!.Value - 1);
+                        lsNoteInst = null;
+                    }
+
                     if (lsDur is not null && curDur != lsDur)
-                        fixup.Add(CmdDuration + lsDur.Value - 1);
-                    for (int i = 0; i < fixup.Count; i++)
-                        stream.Insert(lsTarget + i, fixup[i]);
+                    {
+                        stream.Insert(restoreInst && lsNoteAt == lsTarget ? lsTarget + 1 : lsTarget,
+                            CmdDuration + lsDur.Value - 1);
+                        lsNoteAt++;
+                    }
 
                     stream.Add(CmdLoopEnd);
                     stream.Add(repeatCount ?? 0);   // 0 = bare LE, loops forever
@@ -267,6 +277,12 @@ public static class SongSizeCalculator
                 {
                     int duration = 1 + CountHolds(idx + 1);
                     consumedUntil = idx + duration - 1;
+                    if (lsNoteAt is null)
+                    {
+                        lsNoteAt = stream.Count;
+                        lsNoteInst = note.InstrumentNumber;
+                    }
+
                     SetState(note.InstrumentNumber, duration);
                     stream.Add(0x01);           // any note id is one byte
                     break;

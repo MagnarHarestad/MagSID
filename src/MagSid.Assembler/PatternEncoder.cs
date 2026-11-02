@@ -27,7 +27,8 @@ public static class PatternEncoder
 
     /// <summary>A note costs one byte and carries whatever instrument and duration are already
     /// current, so only a change emits a command; a run of "..." rows folds into the preceding
-    /// note's duration; and LE splices the anchor's state back in when the body changed it.</summary>
+    /// note's duration; and LE splices the anchor's state back in when the body changed it, the
+    /// duration at the anchor and the instrument ahead of the body's first note.</summary>
     public static byte[] Encode(Pattern pattern, NoteDictionary notes, IReadOnlyDictionary<int, int>? instrumentOrder = null)
     {
         // The player's own numbering, from InstrumentTables.PlayerOrder; the song's without one.
@@ -44,6 +45,9 @@ public static class PatternEncoder
         // The loop anchor, plus the state as it stood when the anchor was passed.
         int lsTarget = 0;
         int? lsInst = null, lsDur = null;
+
+        // Where the body's first note starts, and the instrument it asks for.
+        int? lsNoteAt = null, lsNoteInst = null;
 
         int consumedUntil = -1;
 
@@ -96,23 +100,35 @@ public static class PatternEncoder
                     lsTarget = stream.Count;             // byte offset of the next thing emitted
                     lsInst = curInst;
                     lsDur = curDur;
+                    lsNoteAt = null;
+                    lsNoteInst = null;
                     break;
 
                 case LoopEndRow(var repeatCount):
                 {
                     // If the body changed instrument or duration, the jump back would re-enter with
-                    // the loop's end state rather than its start. Splice the needed commands in at
-                    // the anchor so every pass re-establishes them.
-                    var fixup = new List<byte>();
-                    if (lsInst is not null && curInst != lsInst)
-                        fixup.Add((byte)(CmdInstrument + IndexOf(lsInst.Value)));
-                    if (lsDur is not null && curDur != lsDur)
-                        fixup.Add((byte)(CmdDuration + lsDur.Value - 1));
-                    for (int i = 0; i < fixup.Count; i++)
-                        stream.Insert(lsTarget + i, fixup[i]);
+                    // the loop's end state rather than its start. The duration goes back at the
+                    // anchor, since the first row lasts it. The instrument goes back ahead of the
+                    // first note, which would otherwise take it from the end of the body: any
+                    // earlier and the note still sounding would run on from the wrong instrument.
+                    // A first note with another instrument sets its own, and needs nothing.
+                    bool restoreInst = lsInst is not null && curInst != lsInst && lsNoteInst == lsInst;
+                    if (restoreInst)
+                    {
+                        stream.Insert(lsNoteAt!.Value, (byte)(CmdInstrument + IndexOf(lsInst!.Value)));
+                        lsNoteInst = null;                   // a later LE on this anchor finds it there
+                    }
 
-                    // curInst/curDur deliberately keep the body's end state: the fixup runs at the
-                    // top of the loop, so it only affects what each pass starts with.
+                    if (lsDur is not null && curDur != lsDur)
+                    {
+                        // After an instrument put back at the same place, as it always was.
+                        stream.Insert(restoreInst && lsNoteAt == lsTarget ? lsTarget + 1 : lsTarget,
+                            (byte)(CmdDuration + lsDur.Value - 1));
+                        lsNoteAt++;
+                    }
+
+                    // curInst/curDur deliberately keep the body's end state: the commands above run
+                    // on the way into the body, so they only affect what each pass starts with.
                     stream.Add(CmdLoopEnd);
                     stream.Add((byte)(repeatCount ?? 0));    // 0 = bare LE, loops forever
                     stream.Add((byte)lsTarget);
@@ -169,6 +185,12 @@ public static class PatternEncoder
                 {
                     int duration = 1 + CountHolds(idx + 1);
                     consumedUntil = idx + duration - 1;
+                    if (lsNoteAt is null)
+                    {
+                        lsNoteAt = stream.Count;
+                        lsNoteInst = note.InstrumentNumber;
+                    }
+
                     SetState(note.InstrumentNumber, duration);
                     stream.Add((byte)notes.IdOf(note.Note));
                     break;
