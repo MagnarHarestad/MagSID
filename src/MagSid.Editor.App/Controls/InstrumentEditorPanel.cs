@@ -152,9 +152,7 @@ public sealed class InstrumentEditorPanel : UserControl
     };
 
     private static readonly string[] NoteChoices =
-        [RootLabel, .. NoteName.AllNotes.Select(n => n.ToString())];
-
-    private const string RootLabel = "ROOT";
+        [.. NoteName.AllNotes.Select(n => n.ToString())];
 
     private static string HexText(NoteName note) => note.TableIndex.ToString("x2");
 
@@ -852,10 +850,8 @@ public sealed class InstrumentEditorPanel : UserControl
 
             string noteText = (row.Cells["Note"].Value as string ?? "").Trim();
 
-            if (noteText.Length == 0 || noteText == RootLabel)
+            if (noteText.Length == 0)
             {
-                if (noteText == RootLabel)
-                    ending = ArpeggioEnding.Root;
                 notesEnded = true;
             }
             else if (notesEnded)

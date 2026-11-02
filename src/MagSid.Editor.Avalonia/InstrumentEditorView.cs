@@ -21,8 +21,8 @@ namespace MagSid.Editor.Avalonia;
 /// the moment a note starts; and what happens after the last note.
 ///
 /// A row's Filter can be blank - no filter action that frame - and the filter program is made of
-/// the rows where it is not, in order. A blank Wave ends the wavetable there, and a blank or ROOT
-/// Note ends the note program. Right-click a row to add a frame, remove it or move it up or down;
+/// the rows where it is not, in order. A blank Wave ends the wavetable there, and a blank Note ends
+/// the note program. Right-click a row to add a frame, remove it or move it up or down;
 /// the whole row moves, every program's step with it.
 ///
 /// Every field applies the moment it is left, through one validation that reads everything first
@@ -48,8 +48,7 @@ internal sealed class InstrumentEditorView : DockPanel
     private static readonly IBrush ReachedBackground = new SolidColorBrush(Lighten(FieldColour, 0.10));
     private static readonly IBrush PlayheadBackground = new SolidColorBrush(Lighten(FieldColour, 0.34));
 
-    private const string RootLabel = "ROOT";
-    private static readonly string[] NoteChoices = [RootLabel, .. NoteName.AllNotes.Select(n => n.ToString()), ""];
+    private static readonly string[] NoteChoices = [.. NoteName.AllNotes.Select(n => n.ToString()), ""];
     private static readonly string[] FilterTypes = ["", "Sweep", "Setup"];
 
     // The program grid's columns, as 1.64's sized themselves to their headings; Sweep takes what
@@ -598,13 +597,10 @@ internal sealed class InstrumentEditorView : DockPanel
         string text = (row.Hex.Text ?? "").Trim().TrimStart('$');
         if (text.Length == 0)
         {
-            // Blank takes the note away. ROOT has no hex of its own, so a blank says nothing there.
-            if (row.NoteText != RootLabel)
-            {
-                _syncing = true;
-                row.Note.SelectedItem = "";
-                _syncing = false;
-            }
+            // Blank takes the note away.
+            _syncing = true;
+            row.Note.SelectedItem = "";
+            _syncing = false;
 
             return true;
         }
@@ -737,7 +733,7 @@ internal sealed class InstrumentEditorView : DockPanel
     private void FillNoteGaps()
     {
         var typed = _program.Select(row => row.NoteText.Trim()).ToList();
-        var filled = InstrumentNoteColumn.FillGaps(typed, RootLabel);
+        var filled = InstrumentNoteColumn.FillGaps(typed);
 
         _syncing = true;
         try
@@ -785,12 +781,8 @@ internal sealed class InstrumentEditorView : DockPanel
             }
 
             string note = row.NoteText.Trim();
-            if (note.Length == 0 || note == RootLabel)
-            {
-                if (note == RootLabel)
-                    ending = ArpeggioEnding.Root;
+            if (note.Length == 0)
                 notesEnded = true;
-            }
             else if (notesEnded)
                 throw new FormatException($"Frame {frame}: the note column already ended on an earlier frame, so this note would never be reached.");
             else if (!NoteName.TryParse(note, out var parsed))

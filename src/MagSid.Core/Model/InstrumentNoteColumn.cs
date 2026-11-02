@@ -8,22 +8,16 @@ namespace MagSid.Core.Model;
 /// </summary>
 public static class InstrumentNoteColumn
 {
-    /// <param name="cells">One text per frame: a note, blank, or <paramref name="endLabel"/>.</param>
-    /// <param name="endLabel">Says how the program ends, so nothing from there on is touched. A note
-    /// after it can never be reached, and that stays for the caller to refuse.</param>
-    public static List<string> FillGaps(IReadOnlyList<string> cells, string endLabel)
+    /// <param name="cells">One text per frame: a note or blank.</param>
+    public static List<string> FillGaps(IReadOnlyList<string> cells)
     {
         var filled = cells.ToList();
 
-        int end = filled.IndexOf(endLabel);
-        if (end < 0)
-            end = filled.Count;
-
-        int first = filled.Take(end).ToList().FindIndex(cell => cell.Length > 0);
+        int first = filled.FindIndex(cell => cell.Length > 0);
         if (first < 0)
             return filled;
 
-        int last = filled.Take(end).ToList().FindLastIndex(cell => cell.Length > 0);
+        int last = filled.FindLastIndex(cell => cell.Length > 0);
 
         for (int i = 0; i < first; i++)
             filled[i] = filled[first];
