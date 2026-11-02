@@ -80,6 +80,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>Signal Path or Digi to SID-osc when one is in the centre, over the song's view.</summary>
     private Control? _toolShowing;
+
+    /// <summary>Space went down as a transport or Edit key, so its release is not for anyone else.</summary>
+    private bool _spaceTaken;
     private MenuItem _midiMenu = null!;
     private MidiInput? _midi;
     private MidiKnobBindings? _midiBindings;
@@ -268,6 +271,8 @@ public sealed partial class MainWindow : Window
         var next = StripButton("▶", () => _grid.MoveCursorRowPage(TrackerGridControl.PageRows));
         _play.Classes.Add("strip");
         _chip.Classes.Add("strip");
+        _play.Focusable = false;
+        _chip.Focusable = false;
         _editMode.Margin = new Thickness(6, 0);
 
         // The Windows editor's toolbar, item for item: file, speed, transport, paging, size.
@@ -478,10 +483,12 @@ public sealed partial class MainWindow : Window
             _grid.Focus();
     }
 
-    /// <summary>A flat toolbar button, as a ToolStripButton: no frame until the pointer is on it.</summary>
+    /// <summary>A flat toolbar button, as a ToolStripButton: no frame until the pointer is on it, and
+    /// focus stays where it was. Taking it back afterwards cannot work in the DAW, with the grid
+    /// hidden, and the keys then went to the button: Enter pressed Open again.</summary>
     private Button StripButton(string text, Action action)
     {
-        var button = new Button { Content = text, Classes = { "strip" } };
+        var button = new Button { Content = text, Classes = { "strip" }, Focusable = false };
         button.Click += (_, _) =>
         {
             action();
@@ -778,6 +785,9 @@ public sealed partial class MainWindow : Window
 
     private void OnTransportKey(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Space)
+            _spaceTaken = false;
+
         // A tool's keys are its own; Esc closes it, unless it is closing a drop-down.
         if (_toolShowing is not null)
         {
@@ -829,6 +839,7 @@ public sealed partial class MainWindow : Window
                 _grid.ToggleEditMode();
                 break;
             case Key.Space when e.KeyModifiers == KeyModifiers.None:
+                _spaceTaken = true;
                 if (EditorSettings.SwapSpacebar)
                     ToggleTransport();
                 else
@@ -894,6 +905,15 @@ public sealed partial class MainWindow : Window
 
     private void OnDawKeyUp(object? sender, KeyEventArgs e)
     {
+        // A focused button clicks on Space's release, even with the press taken from it: stopping
+        // the song with focus on Open also opened the file browser.
+        if (e.Key == Key.Space && _spaceTaken)
+        {
+            _spaceTaken = false;
+            e.Handled = true;
+            return;
+        }
+
         if (_dawHeldKeys.Remove(System.Windows.Forms.KeyMap.From(e), out var note))
         {
             ReleaseDawNote(note);
