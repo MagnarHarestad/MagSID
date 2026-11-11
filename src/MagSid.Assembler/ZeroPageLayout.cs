@@ -176,7 +176,10 @@ public sealed class ZeroPageLayout
 /// the outgoing instrument's flag; without one the test is left out of the player.</param>
 /// <param name="SpeedRows">A pattern has an Fxy row, so the speeds have to be bytes a row can change
 /// rather than constants in the reload.</param>
-public sealed record PlayerFeatures(bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false)
+/// <param name="FilterSweep">A filter setup has a sweep rate, so a step taken while no sweep runs
+/// has to set where the next one starts.</param>
+public sealed record PlayerFeatures(
+    bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false, bool FilterSweep = false)
 {
     public static readonly PlayerFeatures None = new(false, false);
 

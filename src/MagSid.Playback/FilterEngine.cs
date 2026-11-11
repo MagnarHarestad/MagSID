@@ -91,6 +91,11 @@ public sealed class FilterEngine
 
         write(0x16, step.Cutoff);
         Cutoff = step.Cutoff;
+
+        // With no sweep running, a step is where the next one starts from: the sweep doubles its
+        // phase on the way out, so the phase is the cutoff halved. A running sweep keeps its place.
+        if (_sweepRate == 0)
+            _phase = step.Cutoff >> 1;
     }
 
     /// <summary>

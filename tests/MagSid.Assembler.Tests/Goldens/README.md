@@ -127,8 +127,16 @@ what shrinks these songs (1 to 9 bytes; the byte was overwritten before anything
 for the cases that do change. Same procedure, with the old images first rebuilt byte for byte. All the other images came
 out byte for byte as before, and old and new wrote the same SID registers for 30000 frames on every song in `SongData`.
 
+`lightforce.bin` (and its `GateOff\` twin) was reassembled on **2026-11-11**, when a filter step taken while no sweep runs
+started setting where the next sweep starts: `ldy filter_delta / bne .filterdone / lsr / sta filter_phase` after
+`.filtercut`, 7 bytes, assembled only when an instrument's FLT setup has a sweep rate (`v_fltsweep`, from the include-time
+scan in `Tables.s`). Before, a sweep went on from wherever the last one left off. `filter_sweep.bin` was added for the
+steps that set it; Lightforce's only step sets its rate first, so it plays as before. Same procedure, with the 36 old
+images first rebuilt byte for byte; all the other images came out byte for byte as before, and old and new wrote the
+same SID registers for 30000 frames on every song in `SongData` but PowerBass, the song this is for.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
-the release, funk speed, Fxy rows, the loop restore and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
+the release, funk speed, Fxy rows, the loop restore, the sweep start and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 
 `opcodes.txt` is the emitter's opcode table, one `mnemonic mode hex` line each, frozen after

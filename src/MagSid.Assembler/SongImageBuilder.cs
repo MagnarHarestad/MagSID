@@ -19,7 +19,8 @@ public static class SongImageBuilder
         Slide: Core.SongSizeCalculator.UsesSlide(song),
         SoftHardRestart: song.Instruments.Any(i => i.SoftHardRestart),
         Funk: song.HasFunk,
-        SpeedRows: Core.SongSizeCalculator.UsesSpeedRows(song));
+        SpeedRows: Core.SongSizeCalculator.UsesSpeedRows(song),
+        FilterSweep: Core.SongSizeCalculator.UsesFilterSweep(song));
 
     /// <summary>Emits at <paramref name="loadAddress"/>. Nothing is position-fixed - the player has
     /// no alignment requirements and no baked-in addresses - so this is the whole of relocation. The

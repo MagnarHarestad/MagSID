@@ -560,7 +560,7 @@ public static class PlayerProgram
         asm.Jsr(voiceAutomation);
         NextVoice(asm, nextVoice);
 
-        EmitFilterPlay(asm, tables, zp, onBeatPlaySong, shadows);
+        EmitFilterPlay(asm, tables, features, zp, onBeatPlaySong, shadows);
 
         // --- ONbeat.PlaySong ---
         asm.Define(onBeatPlaySong);
@@ -602,7 +602,8 @@ public static class PlayerProgram
     /// four-byte setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls
     /// through from music.play, no jsr.</summary>
     private static void EmitFilterPlay(
-        Emitter6502 asm, SongTableLabels tables, ZeroPageLayout zp, Label onBeatPlaySong, PlayerShadows? shadows)
+        Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp, Label onBeatPlaySong,
+        PlayerShadows? shadows)
     {
         var filterDone = asm.NewLabel(".filterdone");
         var filterCut = asm.NewLabel(".filtercut");
@@ -634,6 +635,16 @@ public static class PlayerProgram
             asm.Sta(Mem(shadows.FilterCutoff));
         asm.Inx();
         asm.Stx(Mem(zp.FilterPos));
+        if (features.FilterSweep)
+        {
+            // With no sweep running, a step is where the next one starts from: the sweep doubles
+            // its position on the way out, so it is the cutoff halved.
+            asm.Ldy(Mem(zp.FilterDelta));
+            asm.Bne(filterDone);
+            asm.Lsr();
+            asm.Sta(Mem(zp.FilterPhase));
+        }
+
         asm.Define(filterDone);
 
         // Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed

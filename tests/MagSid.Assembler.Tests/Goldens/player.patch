@@ -585,7 +585,20 @@
  .filtercut:
  		sta $d416
  		if def musicshower
-@@ -529,16 +389,34 @@
+@@ -505,6 +365,12 @@
+ 		endif
+ 		inx
+ 		stx filter_pos
++		if def v_fltsweep
++		ldy filter_delta                       ; with no sweep running, a step is where the next
++		bne .filterdone                        ; one starts from: the sweep doubles its position
++		lsr                                    ; on the way out, so it is the cutoff halved
++		sta filter_phase
++		endif
+ .filterdone:
+ 
+ 		; Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed rate
+@@ -529,16 +395,34 @@
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
@@ -622,7 +635,7 @@
  		bpl .nextchannel
  		rts
  
-@@ -547,8 +425,6 @@
+@@ -547,8 +431,6 @@
  ; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
  
  Voice_Tick:
@@ -631,7 +644,7 @@
  		; Count down first and test the result rather than testing for zero then decrementing: a row
  		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
  		; voice_duration from voice_rowdur first.
-@@ -557,10 +433,11 @@
+@@ -557,10 +439,11 @@
  		rts
  
  .fetch:
@@ -647,7 +660,7 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +449,12 @@
+@@ -572,7 +455,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
@@ -660,7 +673,7 @@
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -604,6 +486,10 @@
+@@ -604,6 +492,10 @@
  		tay                                    ; same reasoning - jump straight in with Y set
  		jmp .nextcmd
  
@@ -671,7 +684,7 @@
  		; Masking rather than subtracting: the dispatch above already proved which range the
  		; byte is in, so the low bits are the value and a single AND isolates them - one byte
  		; less than sec/sbc, and it leaves no carry to think about.
-@@ -621,18 +507,124 @@
+@@ -621,18 +513,124 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
@@ -1097,18 +1110,19 @@
  
  -- Note dictionary id -> chromatic index, for the musicshower's note column. The dictionary
  -- is first-occurrence order, so an id says nothing about pitch on its own. v_musicshower is
-@@ -1053,6 +1133,10 @@
+@@ -1053,6 +1133,11 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
 +    v_funk_scan = false
 +    v_speed_scan = false
++    v_fltsweep_scan = false
 +    local instruments_scan, vibrato_scan = 0, 0
 +    local funk = nil
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1063,19 +1147,41 @@
+@@ -1063,19 +1148,51 @@
              elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then
@@ -1118,6 +1132,13 @@
 +                if t:upper():match(",%s*VIB%s") then
 +                    v_vibrato_scan = true
 +                    vibrato_scan = vibrato_scan + 1
++                end
++                -- A FLT group's signed value is its sweep rate; one that is not 0 runs the sweep.
++                for inner in t:gmatch("%(([^)]*)%)") do
++                    for tok in inner:gmatch("%S+") do
++                        local rate = tok:match("^([-+]%d+)$")
++                        if rate and tonumber(rate, 10) ~= 0 then v_fltsweep_scan = true end
++                    end
 +                end
              end
 +            if not in_instruments and t:match('^"[12]%x%x"') then v_slide_scan = true end
@@ -1143,6 +1164,9 @@
 +    end
 +    if v_slide_scan or v_speed_scan then
 +        asm("var v_effectrows = 1")
++    end
++    if v_fltsweep_scan then
++        asm("var v_fltsweep = 1")
 +    end
      if v_vibrato_scan or v_slide_scan then
          asm("var v_freqmod = 1")

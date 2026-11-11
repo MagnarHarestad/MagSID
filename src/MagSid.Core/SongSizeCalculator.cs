@@ -71,6 +71,10 @@ public static class SongSizeCalculator
     /// <summary>With funk speed, a second seed - and the reload above replaces funk's own.</summary>
     private const int SpeedRowFunkSeedBytes = 4;
 
+    /// <summary>A filter step taken while no sweep runs sets where the next one starts:
+    /// ldy/bne/lsr/sta.</summary>
+    private const int FilterSweepStartBytes = 7;
+
     /// <summary>The cpy/bcs that keeps instruments without vibrato out of the vibrato tables.</summary>
     private const int VibratoCompareBytes = 4;
 
@@ -106,6 +110,11 @@ public static class SongSizeCalculator
     public static bool UsesSpeedRows(Song song) =>
         song.Patterns.Any(p => p.Rows.Any(r => r is SpeedRow));
 
+    /// <summary>A filter setup with a sweep rate in any instrument - what assembles the code that
+    /// sets where a sweep starts.</summary>
+    public static bool UsesFilterSweep(Song song) =>
+        song.Instruments.Any(i => i.Filter.Any(step => step.SweepRate != 0));
+
     public static SongSize Measure(Song song)
     {
         bool anyVibrato = song.Instruments.Any(i => i.HasVibrato);
@@ -129,6 +138,9 @@ public static class SongSizeCalculator
 
         if (ComparesVibrato(song))
             player += VibratoCompareBytes;
+
+        if (UsesFilterSweep(song))
+            player += FilterSweepStartBytes;
 
         int patternBytes = song.Patterns.Sum(p => EncodedLength(p.Rows));
 

@@ -24,7 +24,7 @@ public class SongSizeTests
     [InlineData("Airstrike.s", 844)]
     [InlineData("BellaCiao.s", 962)]
     [InlineData("Breakdance.s", 817)]
-    [InlineData("Lightforce.s", 959)]
+    [InlineData("Lightforce.s", 966)]
     [InlineData("Magnificent.s", 1081)]
     [InlineData("CityBomber4k(Megastyle).s", 704)]
     [InlineData("SOS.s", 829)]
