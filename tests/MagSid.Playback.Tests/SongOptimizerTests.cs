@@ -21,6 +21,21 @@ public class SongOptimizerTests
         return writes;
     }
 
+    /// <summary>The SID's registers as they stand after each frame - what is heard, where the writes
+    /// that got there may differ.</summary>
+    private static List<string> States(Song song, int frames)
+    {
+        var registers = new int[0x19];
+        var sequencer = new SongSequencer(song, (offset, value) => registers[offset] = value & 0xFF);
+        var states = new List<string>();
+        for (int i = 0; i < frames; i++)
+        {
+            sequencer.Frame();
+            states.Add(string.Join(",", registers));
+        }
+        return states;
+    }
+
     private static Song SongWith(params PatternRow[] rows)
     {
         var song = new Song { Speed = 1 };
@@ -152,6 +167,37 @@ public class SongOptimizerTests
         Assert.Single(instrument.Filter);
         Assert.Contains(result.Findings, f => f.Description.Contains("wavetable 5 -> 2"));
         Assert.True(result.BytesSaved > 0);
+    }
+
+    [Fact]
+    public void Wavetable_steps_that_only_repeat_the_held_waveform_go_and_the_sound_stays()
+    {
+        // Lightforce's kick: $11 four times at the end, beside a note program seven steps long.
+        var original = SongWith(N("C-4"), new HoldRow(), new HoldRow(), new HoldRow(), new NoteOffRow(), new HoldRow());
+        var kick = original.Instruments[0];
+        kick.Wavetable.AddRange([0x09, 0x81, 0x41, 0x11, 0x11, 0x11, 0x11]);
+        kick.Arpeggio.AddRange(new[] { "B-6", "B-6", "D-3", "C#3", "F#2", "B-1", "F#1" }.Select(NoteName.Parse));
+        kick.ArpeggioEnding = ArpeggioEnding.Hold;
+
+        var optimized = SongCloner.Clone(original);
+        var result = SongOptimizer.Apply(optimized);
+
+        Assert.Equal([0x09, 0x81, 0x41, 0x11], optimized.Instruments[0].Wavetable);
+        Assert.Equal(7, optimized.Instruments[0].Arpeggio.Count);
+        Assert.Contains(result.Findings, f => f.Description.Contains("wavetable 7 -> 4"));
+        Assert.Equal(3, result.BytesSaved);
+        Assert.Equal(States(original, 200), States(optimized, 200));
+    }
+
+    [Fact]
+    public void A_repeat_further_in_takes_a_frame_and_stays()
+    {
+        var song = SongWith(N("C-4"));
+        song.Instruments[0].Wavetable.AddRange([0x81, 0x81, 0x41]);
+
+        SongOptimizer.Apply(song);
+
+        Assert.Equal([0x81, 0x81, 0x41], song.Instruments[0].Wavetable);
     }
 
     [Fact]
@@ -345,7 +391,8 @@ public class SongOptimizerTests
         Assert.True(result.After.TotalBytes <= result.Before.TotalBytes);
 
         // Long enough for every channel to run through its whole order and restart at least once,
-        // which is what the order rewrite needs covering.
-        Assert.Equal(Render(original, 12000), Render(optimized, 12000));
+        // which is what the order rewrite needs covering. The registers as they stand, not every
+        // write: a trimmed wavetable no longer writes the waveform it holds again.
+        Assert.Equal(States(original, 12000), States(optimized, 12000));
     }
 }

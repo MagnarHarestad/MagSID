@@ -54,6 +54,8 @@ public static class SongOptimizer
             TrimUnplayedProgramSteps(song, usage, findings);
         }
 
+        TrimRepeatedWaveformTails(song, findings);
+
         foreach (var pattern in song.Patterns)
         {
             int dead = RemoveDeadLoopStarts(pattern.Rows);
@@ -220,6 +222,31 @@ public static class SongOptimizer
     /// A looping note program is left alone: it cycles, so anything unreached means the loop never
     /// came round, and shortening the list would move the loop rather than trim dead weight.
     /// </summary>
+    /// <summary>
+    /// A wavetable ends by holding its last waveform, so steps at its end that only repeat the one
+    /// before them write the same value again and change nothing: they go, whether or not a
+    /// play-through reached them. Steps further in still take a frame each, so they stay; and a
+    /// note program running beside the wavetable keeps its own steps.
+    /// </summary>
+    private static void TrimRepeatedWaveformTails(Song song, List<Finding> findings)
+    {
+        foreach (var instrument in song.Instruments)
+        {
+            var wave = instrument.Wavetable;
+            int keep = wave.Count;
+            while (keep >= 2 && wave[keep - 1] == wave[keep - 2])
+                keep--;
+
+            if (keep == wave.Count)
+                continue;
+
+            findings.Add(new Finding(0,
+                $"instrument {instrument.Number:D2}: wavetable {wave.Count} -> {keep} steps " +
+                $"({wave.Count - keep} only repeat the waveform it holds anyway)", 0));
+            wave.RemoveRange(keep, wave.Count - keep);
+        }
+    }
+
     private static void TrimUnplayedProgramSteps(Song song,
         IReadOnlyDictionary<int, InstrumentUsage> usage, List<Finding> findings)
     {
