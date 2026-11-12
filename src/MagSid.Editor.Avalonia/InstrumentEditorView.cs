@@ -17,7 +17,7 @@ namespace MagSid.Editor.Avalonia;
 /// small captioned groups - envelope, pulse, hard restart, vibrato - that wrap a group
 /// at a time when the column is narrow; one grid of the programs, a row a frame, with the
 /// wavetable (Wave), the note program (Note, and its byte as Hex) and the filter program (Filter,
-/// Mode/Vol, Res+Voice, Cutoff, Sweep) side by side, since all three take a step each frame from
+/// Mode/Vol, Res+Voice, Cutoff, Sweep, End) side by side, since all three take a step each frame from
 /// the moment a note starts; and what happens after the last note.
 ///
 /// A row's Filter can be blank - no filter action that frame - and the filter program is made of
@@ -53,8 +53,8 @@ internal sealed class InstrumentEditorView : DockPanel
 
     // The program grid's columns, as 1.64's sized themselves to their headings; Sweep takes what
     // is left, so the table ends at its last cell.
-    private static readonly string[] Headings = ["#", "Wave", "Note", "Hex", "Filter", "Mode/Vol", "Res+Voice", "Cutoff", "Sweep"];
-    private const string ColumnWidths = "34,50,70,46,74,72,80,60,*";
+    private static readonly string[] Headings = ["#", "Wave", "Note", "Hex", "Filter", "Mode/Vol", "Res+Voice", "Cutoff", "Sweep", "End"];
+    private const string ColumnWidths = "34,50,70,46,74,72,80,60,56,*";
     private const double CellHeight = 22;
 
     /// <summary>What a freshly enabled Vibrator starts from: delay 2 (8 frames), speed 4, depth
@@ -362,6 +362,9 @@ internal sealed class InstrumentEditorView : DockPanel
         public required TextBox Cutoff { get; init; }
         public required TextBox Sweep { get; init; }
 
+        /// <summary>The cutoff a sweep turns back at; blank for as far as its rate goes.</summary>
+        public required TextBox End { get; init; }
+
         /// <summary>What a filter cell held when its Filter choice took it away, to bring back.</summary>
         public Dictionary<TextBox, string> Kept { get; } = [];
 
@@ -383,10 +386,11 @@ internal sealed class InstrumentEditorView : DockPanel
             Res = Cell(),
             Cutoff = Cell(),
             Sweep = Cell(),
+            End = Cell(),
         };
 
         // Each cell in a frame of grid lines, as a DataGridView draws them.
-        Control[] cells = [row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep];
+        Control[] cells = [row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep, row.End];
         for (int column = 0; column < cells.Length; column++)
         {
             var frame = new Border { BorderBrush = FrameBrush, BorderThickness = new Thickness(0, 0, 1, 1), Child = cells[column] };
@@ -406,6 +410,7 @@ internal sealed class InstrumentEditorView : DockPanel
             row.Res.Text = filter?.ResonanceRouting?.ToString("x2") ?? "";
             row.Cutoff.Text = filter is { } step ? step.Cutoff.ToString("x2") : "";
             row.Sweep.Text = filter is { IsSetup: true } setup ? setup.SweepRate.ToString(CultureInfo.InvariantCulture) : "";
+            row.End.Text = filter is { IsSetup: true, SweepRate: not 0 } sweeping ? sweeping.SweepEnd.ToString("x2") : "";
             ApplyFilterType(row);
         }
         finally
@@ -413,12 +418,12 @@ internal sealed class InstrumentEditorView : DockPanel
             _loading = loading;
         }
 
-        foreach (var control in new Control[] { row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep })
+        foreach (var control in new Control[] { row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep, row.End })
             control.GotFocus += (_, _) => _currentRow = row;
 
         // The row's own menu on every cell, in place of a text box's cut and paste: a frame is
         // what a right-click here acts on.
-        foreach (var control in new Control[] { row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep })
+        foreach (var control in new Control[] { row.Step, row.Wave, row.Note, row.Hex, row.Type, row.Mode, row.Res, row.Cutoff, row.Sweep, row.End })
         {
             control.ContextFlyout = null;
             control.ContextMenu = _rowMenu;
@@ -431,9 +436,9 @@ internal sealed class InstrumentEditorView : DockPanel
                 _currentRow = row;
         }, global::Avalonia.Interactivity.RoutingStrategies.Tunnel);
 
-        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Sweep, row.Mode })
+        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Sweep, row.End, row.Mode })
             CommitOnLeavingOrEnter(box, Commit);
-        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.Mode })
+        foreach (var box in new[] { row.Wave, row.Res, row.Cutoff, row.End, row.Mode })
             CommitAsTyped(box, IsWholeHexByte, Commit);
         CommitAsTyped(row.Sweep, IsSweepRate, Commit);
 
@@ -511,8 +516,8 @@ internal sealed class InstrumentEditorView : DockPanel
             _program[i].Step.Text = i.ToString(CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Cutoff needs a filter step of either kind; Mode/Vol, Res+Voice and Sweep need a
-    /// setup. A blank Filter - no filter action this frame - blanks and locks all four.</summary>
+    /// <summary>Cutoff needs a filter step of either kind; Mode/Vol, Res+Voice, Sweep and End need
+    /// a setup. A blank Filter - no filter action this frame - blanks and locks all five.</summary>
     private void ApplyFilterType(ProgramRow row)
     {
         bool setup = row.TypeText == "Setup";
@@ -522,6 +527,7 @@ internal sealed class InstrumentEditorView : DockPanel
         ShowFilterCell(row, row.Mode, setup, () => Shown("1f"));
         ShowFilterCell(row, row.Res, setup, () => "f1");
         ShowFilterCell(row, row.Sweep, setup, () => "0");
+        ShowFilterCell(row, row.End, setup, () => "");
     }
 
     private static void ShowFilterCell(ProgramRow row, TextBox cell, bool used, Func<string> fresh)
@@ -840,7 +846,10 @@ internal sealed class InstrumentEditorView : DockPanel
             if (!int.TryParse(rateText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int rate) || rate is < -128 or > 127)
                 throw new FormatException($"Frame {frame} filter: the sweep rate is a signed number, -128 to 127. 0 stops a sweep that is already running.");
 
-            filter.Add(FilterStep.Setup(mode, resonance, cutoff, rate));
+            // Blank is as far as the rate goes; any other end becomes the last one the rate lands on.
+            string endText = (row.End.Text ?? "").Trim();
+            int? end = endText.Length == 0 ? null : ReadHex(endText, $"Frame {frame} filter sweep end");
+            filter.Add(FilterStep.Setup(mode, resonance, cutoff, rate, end));
         }
 
         return filter;

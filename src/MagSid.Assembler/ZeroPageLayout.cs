@@ -74,8 +74,15 @@ public sealed class ZeroPageLayout
 
         SongSpeed = Scalar();
         FilterPos = Scalar();
-        FilterPhase = Scalar();
-        FilterDelta = Scalar();
+
+        // The filter sweep's four, only in a song with one.
+        if (features.FilterSweep)
+        {
+            FilterCut = Scalar();
+            FilterDelta = Scalar();
+            FilterStart = Scalar();
+            FilterEnd = Scalar();
+        }
 
         // Fxy rows' two bytes, or else funk speed's shuffle byte, last - so a song without them
         // keeps every address it had.
@@ -144,8 +151,13 @@ public sealed class ZeroPageLayout
     public int SongDelta { get; }
 
     public int FilterPos { get; }
-    public int FilterPhase { get; }
+
+    /// <summary>Zero unless the song has a filter sweep: the cutoff it is at, its signed rate, and
+    /// the two cutoffs it turns back at.</summary>
+    public int FilterCut { get; }
     public int FilterDelta { get; }
+    public int FilterStart { get; }
+    public int FilterEnd { get; }
 
     private int Scalar()
     {
@@ -176,8 +188,8 @@ public sealed class ZeroPageLayout
 /// the outgoing instrument's flag; without one the test is left out of the player.</param>
 /// <param name="SpeedRows">A pattern has an Fxy row, so the speeds have to be bytes a row can change
 /// rather than constants in the reload.</param>
-/// <param name="FilterSweep">A filter setup has a sweep rate, so a step taken while no sweep runs
-/// has to set where the next one starts.</param>
+/// <param name="FilterSweep">A filter setup has a sweep rate, so the player has the sweep, and every
+/// setup record a rate and an end.</param>
 public sealed record PlayerFeatures(
     bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false, bool FilterSweep = false)
 {

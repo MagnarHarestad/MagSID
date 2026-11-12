@@ -20,6 +20,10 @@ public sealed class SongTableLabels
     public required Label ArpData { get; init; }
     public required Label FltStart { get; init; }
     public required Label FltData { get; init; }
+
+    /// <summary>One past <see cref="FltData"/>: the filter pool's first byte, so the byte after the
+    /// one X reads. A setup's end follows its rate.</summary>
+    public required Label FltDataNext { get; init; }
     public required Label PwInit { get; init; }
     public required Label PwAdd { get; init; }
 
@@ -598,8 +602,8 @@ public static class PlayerProgram
     }
 
     /// <summary>Filter, once per frame and before the row fetch, so a program claimed this frame
-    /// takes its first step next frame. Byte stream: $01..$FE steps the cutoff, $FF introduces a
-    /// four-byte setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls
+    /// takes its first step next frame. Byte stream: $01..$FE steps the cutoff, $FF a setup
+    /// (mode+volume, resonance+routing, with a sweep its rate and end, cutoff), $00 ends. Falls
     /// through from music.play, no jsr.</summary>
     private static void EmitFilterPlay(
         Emitter6502 asm, SongTableLabels tables, PlayerFeatures features, ZeroPageLayout zp, Label onBeatPlaySong,
@@ -607,6 +611,9 @@ public static class PlayerProgram
     {
         var filterDone = asm.NewLabel(".filterdone");
         var filterCut = asm.NewLabel(".filtercut");
+
+        if (features.FilterSweep)
+            asm.Ldy(Mem(zp.FilterDelta));           // the sweep as it was before this frame's step
 
         asm.Ldx(Mem(zp.FilterPos));
         asm.Beq(filterDone);                        // nothing has claimed the filter yet
@@ -624,9 +631,25 @@ public static class PlayerProgram
         asm.Sta(Mem(SidFilterResonance));           // resonance + which voices are routed through
         if (shadows is not null)
             asm.Sta(Mem(shadows.FilterResonance));
-        asm.Inx();
-        asm.Lda(MemX(tables.FltData));
-        asm.Sta(Mem(zp.FilterDelta));               // sweep rate, 0 to stop a running sweep
+        if (features.FilterSweep)
+        {
+            // Sweep rate: 0 stops a sweep, any other starts one, unless one is already running -
+            // that one goes on as it is, so a drum hitting again leaves it alone.
+            var newSweep = asm.NewLabel(".newsweep");
+            var oldSweep = asm.NewLabel(".oldsweep");
+            asm.Inx();
+            asm.Lda(MemX(tables.FltData));
+            asm.Beq(newSweep);
+            asm.Cpy(Imm(0));
+            asm.Bne(oldSweep);
+            asm.Define(newSweep);
+            asm.Sta(Mem(zp.FilterDelta));
+            asm.Lda(MemX(tables.FltDataNext));      // where it turns back
+            asm.Sta(Mem(zp.FilterEnd));
+            asm.Define(oldSweep);
+            asm.Inx();
+        }
+
         asm.Inx();
         asm.Lda(MemX(tables.FltData));
         asm.Define(filterCut);
@@ -637,34 +660,41 @@ public static class PlayerProgram
         asm.Stx(Mem(zp.FilterPos));
         if (features.FilterSweep)
         {
-            // With no sweep running, a step is where the next one starts from: the sweep doubles
-            // its position on the way out, so it is the cutoff halved.
-            asm.Ldy(Mem(zp.FilterDelta));
+            // With no sweep running before it, a step is where the next one starts, and turns
+            // back to.
+            asm.Cpy(Imm(0));
             asm.Bne(filterDone);
-            asm.Lsr();
-            asm.Sta(Mem(zp.FilterPhase));
+            asm.Sta(Mem(zp.FilterCut));
+            asm.Sta(Mem(zp.FilterStart));
         }
 
         asm.Define(filterDone);
 
-        // Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed
-        // rate and wraps, the cutoff folds the top half back down and doubles. That fold is what
-        // makes it ping-pong without bounds checks, at the cost of a fixed $00..$FE range.
-        asm.Lda(Mem(zp.FilterDelta));
-        var sweepDone = asm.NewLabel(".sweepdone");
-        asm.Beq(sweepDone);                         // 0 = no sweep running
-        asm.Clc();
-        asm.Adc(Mem(zp.FilterPhase));
-        asm.Sta(Mem(zp.FilterPhase));
-        var sweepUp = asm.NewLabel(".sweepup");
-        asm.Bpl(sweepUp);
-        asm.Eor(Imm(0xFF));                         // past the top: fold back down
-        asm.Define(sweepUp);
-        asm.Asl();
-        asm.Sta(Mem(SidFilterCutoffHi));
-        if (shadows is not null)
-            asm.Sta(Mem(shadows.FilterCutoff));
-        asm.Define(sweepDone);
+        if (features.FilterSweep)
+        {
+            // Filter sweep, every frame: the cutoff moves by a signed rate, and turns back at either
+            // end. Both ends are a whole number of rates apart, so it lands on them.
+            var sweepDone = asm.NewLabel(".sweepdone");
+            var turn = asm.NewLabel(".turn");
+            asm.Lda(Mem(zp.FilterDelta));
+            asm.Beq(sweepDone);                     // 0 = no sweep running
+            asm.Clc();
+            asm.Adc(Mem(zp.FilterCut));
+            asm.Sta(Mem(zp.FilterCut));
+            asm.Sta(Mem(SidFilterCutoffHi));
+            if (shadows is not null)
+                asm.Sta(Mem(shadows.FilterCutoff));
+            asm.Cmp(Mem(zp.FilterEnd));
+            asm.Beq(turn);
+            asm.Cmp(Mem(zp.FilterStart));
+            asm.Bne(sweepDone);
+            asm.Define(turn);
+            asm.Lda(Imm(0));                        // at either end: back the other way
+            asm.Sec();
+            asm.Sbc(Mem(zp.FilterDelta));
+            asm.Sta(Mem(zp.FilterDelta));
+            asm.Define(sweepDone);
+        }
 
         asm.Dec(Mem(zp.SongSpeed));
         asm.Bmi(onBeatPlaySong);

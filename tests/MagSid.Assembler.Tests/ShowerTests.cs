@@ -275,7 +275,8 @@ public class ShowerTests
             Assert.Equal(machine.LastSid[0x18], machine.Hex(20, 17));
             Assert.Equal(machine.LastSid[0x17], machine.Hex(21, 17));
             Assert.Equal(machine.LastSid[0x16], machine.Hex(22, 17));
-            Assert.Equal(cpu.Read(zp.FilterDelta), machine.Hex(23, 17));
+            if (zp.FilterDelta != 0)
+                Assert.Equal(cpu.Read(zp.FilterDelta), machine.Hex(23, 17));
         }
 
         Assert.Contains(seen, text => text.Length == 3 && char.IsAsciiLetter(text[0]) && char.IsAsciiDigit(text[2]));

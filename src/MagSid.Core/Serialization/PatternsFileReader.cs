@@ -420,18 +420,19 @@ public static partial class PatternsFileReader
                     }
                 }
 
-                if (values.Count != 3)
+                if (values.Count is not (3 or 4) || (values.Count == 4 && sweepRate == 0))
                 {
                     throw Error(sourceName, lineNumber,
                         "INSTRUMENTS: a FLT group is (mode+volume, resonance+routing, cutoff) " +
-                        $"with an optional signed sweep rate: {line}");
+                        $"with an optional signed sweep rate and the cutoff it turns back at: {line}");
                 }
 
                 instrument.Filter.Add(FilterStep.Setup(
                     (byte)values[0],
                     (byte)values[1],
                     CheckCutoff(sourceName, lineNumber, line, values[2]),
-                    sweepRate));
+                    sweepRate,
+                    values.Count == 4 ? values[3] : null));
                 i = close + 1;
                 continue;
             }

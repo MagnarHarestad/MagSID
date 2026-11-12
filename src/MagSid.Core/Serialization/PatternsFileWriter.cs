@@ -136,8 +136,9 @@ public static class PatternsFileWriter
         if (!step.IsSetup)
             return $"${step.Cutoff:x2}";
 
-        // A rate of 0 is what a group without one means, so it stays unwritten.
-        string rate = step.SweepRate != 0 ? $" {step.SweepRate:+0;-0;+0}" : "";
+        // A rate of 0 is what a group without one means, so it stays unwritten; a sweep's end
+        // always follows its rate.
+        string rate = step.SweepRate != 0 ? $" {step.SweepRate:+0;-0;+0} ${step.SweepEnd:x2}" : "";
         return $"(${step.ModeVolume!.Value:x2} ${step.ResonanceRouting!.Value:x2} " +
                $"${step.Cutoff:x2}{rate})";
     }

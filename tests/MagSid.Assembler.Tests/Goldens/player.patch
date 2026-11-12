@@ -9,7 +9,7 @@
  
  		; $00 terminates both the note stream and the song-order stream, and costs nothing
  		; to test for - the lda that fetches the byte already sets Z, so a bare beq does it.
-@@ -29,73 +31,62 @@
+@@ -29,73 +31,67 @@
  		var ROW_WAIT  = CMD_WAIT
  
  
@@ -75,7 +75,12 @@
 +			if v_vibrato_scan then add("voice_vib_dir", "voice_vib_cnt", "voice_vib_delay") end
 +			if v_slide_scan then add("voice_slide") end
 +
-+			local scalars = { "Song_Speed", "filter_pos", "filter_phase", "filter_delta" }
++			local scalars = { "Song_Speed", "filter_pos" }
++			if v_fltsweep_scan then
++				for _, name in ipairs({ "filter_cut", "filter_delta", "filter_start", "filter_end" }) do
++					scalars[#scalars + 1] = name
++				end
++			end
 +			if v_speed_scan then
 +				scalars[#scalars + 1] = "Song_Next"
 +				scalars[#scalars + 1] = "Song_Delta"
@@ -122,7 +127,7 @@
  
  		; --- MUSIC PLAYER LOCATION --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  		org addr.music.loc, "M_Music Player - JMPs for Init and Play"
-@@ -109,16 +100,6 @@
+@@ -109,16 +105,6 @@
  
  		org @, "M_Music Player - Shared voice subroutines"
  
@@ -139,7 +144,7 @@
  Voice_AdvanceOrder:
  .read:
  		ldy voice_orderpos,x
-@@ -138,157 +119,48 @@
+@@ -138,157 +124,48 @@
  		sta voice_orderpos,x
  		jmp .read
  
@@ -321,7 +326,7 @@
  		pla                                    ; the delta again. None of pla/and/beq/lda
  		and #$80                               ; touches the carry flag either
  		beq .pwhigh
-@@ -297,7 +169,7 @@
+@@ -297,7 +174,7 @@
  		adc voice_pw_hi,x
  		and #$0f
  		sta voice_pw_hi,x
@@ -330,7 +335,7 @@
  
  .arpentry:
  		; Note program: one note per frame alongside the wavetable. Absolute note ids, except ROOT
-@@ -305,92 +177,74 @@
+@@ -305,92 +182,74 @@
  		; expressible.
  		ldy voice_arp_pos,x
  		if def v_freqmod
@@ -475,7 +480,7 @@
  		eor voice_vib_dir,x
  		adc voice_off_lo,x
  		sta voice_off_lo,x
-@@ -398,26 +252,22 @@
+@@ -398,26 +257,22 @@
  		adc voice_off_hi,x
  		sta voice_off_hi,x
  		dec voice_vib_cnt,x
@@ -506,7 +511,7 @@
  		rts
  		endif
  
-@@ -438,18 +288,27 @@
+@@ -438,18 +293,27 @@
  		if def musicshower
  		move8 #$0f, show_d418
  		endif
@@ -538,7 +543,7 @@
  
  		if def musicshower
  		show_d418:         .byte 0            ; shadows of the three write-only filter registers
-@@ -465,10 +324,11 @@
+@@ -465,39 +329,53 @@
  		; Wavetables first and on every frame - that is what gives them frame resolution. Counting
  		; down saves the cpx; it reverses the write order within a frame, but the writes and the
  		; per-frame register state are identical and the voices are independent, so it is inaudible.
@@ -552,8 +557,14 @@
  		bpl .nextvoice
  
  Filter_Play:
-@@ -477,27 +337,27 @@
- 		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
+ 		; Filter, once per frame and before the row fetch, so a program claimed this frame takes its
+-		; first step next frame. Byte stream: $01..$FE steps the cutoff, $FF introduces a four-byte
+-		; setup (mode+volume, resonance+routing, sweep rate, cutoff), $00 ends. Falls through, no jsr.
++		; first step next frame. Byte stream: $01..$FE steps the cutoff, $FF a setup (mode+volume,
++		; resonance+routing, with a sweep its rate and end, cutoff), $00 ends. Falls through, no jsr.
++		if def v_fltsweep
++		ldy filter_delta                       ; the sweep as it was before this frame's step
++		endif
  		ldx filter_pos
  		beq .filterdone                        ; nothing has claimed the filter yet
 -		lda flt_data,x
@@ -575,30 +586,73 @@
  		if def musicshower
  		sta show_d417
  		endif
++		if def v_fltsweep
  		inx
 -		lda flt_data,x
-+		lda flt_data-1,x
- 		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
+-		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
++		lda flt_data-1,x                       ; sweep rate: 0 stops a sweep, any other starts one,
++		beq .newsweep                          ; unless one is already running - that one goes on
++		cpy #0                                 ; as it is, so a drum hitting again leaves it alone
++		bne .oldsweep
++.newsweep:
++		sta filter_delta
++		lda flt_data,x                         ; where it turns back
++		sta filter_end
++.oldsweep:
  		inx
 -		lda flt_data,x
++		endif
++		inx
 +		lda flt_data-1,x
  .filtercut:
  		sta $d416
  		if def musicshower
-@@ -505,6 +365,12 @@
+@@ -505,40 +383,70 @@
  		endif
  		inx
  		stx filter_pos
 +		if def v_fltsweep
-+		ldy filter_delta                       ; with no sweep running, a step is where the next
-+		bne .filterdone                        ; one starts from: the sweep doubles its position
-+		lsr                                    ; on the way out, so it is the cutoff halved
-+		sta filter_phase
++		cpy #0                                 ; with no sweep running before it, a step is where
++		bne .filterdone                        ; the next one starts, and turns back to
++		sta filter_cut
++		sta filter_start
 +		endif
  .filterdone:
  
- 		; Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed rate
-@@ -529,16 +395,34 @@
+-		; Filter sweep, every frame. A free-running triangle: filter_phase advances by a signed rate
+-		; and wraps, the cutoff folds the top half back down and doubles. That fold is what makes it
+-		; ping-pong without bounds checks - 20 bytes, at the cost of a fixed $00..$FE range.
++		if def v_fltsweep
++		; Filter sweep, every frame: the cutoff moves by a signed rate, and turns back at either
++		; end. Both ends are a whole number of rates apart, so it lands on them.
+ 		lda filter_delta
+ 		beq .sweepdone                         ; 0 = no sweep running
+ 		clc
+-		adc filter_phase
+-		sta filter_phase
+-		bpl .sweepup
+-		eor #$ff                               ; past the top: fold back down
+-.sweepup:
+-		asl
++		adc filter_cut
++		sta filter_cut
+ 		sta $d416
+ 		if def musicshower
+ 		sta show_d416
+ 		endif
++		cmp filter_end
++		beq .turn
++		cmp filter_start
++		bne .sweepdone
++.turn:
++		lda #0                                 ; at either end: back the other way
++		sec
++		sbc filter_delta
++		sta filter_delta
+ .sweepdone:
++		endif
+ 
+ 		dec Song_Speed
  		bmi ONbeat.PlaySong
  		rts                                     ; between ticks: the filter already stepped above
  ONbeat.PlaySong:
@@ -635,7 +689,7 @@
  		bpl .nextchannel
  		rts
  
-@@ -547,8 +431,6 @@
+@@ -547,8 +455,6 @@
  ; Rows are variable length: voice_event is a byte offset, .nextcmd consumes commands.
  
  Voice_Tick:
@@ -644,7 +698,7 @@
  		; Count down first and test the result rather than testing for zero then decrementing: a row
  		; with N ticks left spends exactly N of them here. The $ff is never seen - .playrow reloads
  		; voice_duration from voice_rowdur first.
-@@ -557,10 +439,11 @@
+@@ -557,10 +463,11 @@
  		rts
  
  .fetch:
@@ -660,7 +714,7 @@
  .fetchrow:
  		ldy voice_event,x
  .nextcmd:
-@@ -572,7 +455,12 @@
+@@ -572,7 +479,12 @@
  		cmp #CMD_OFF
  		bcc .setinstrument                     ; $C0..$CF
  		cmp #LOOP_END
@@ -673,7 +727,7 @@
  		                                       ; command byte itself, which is what NOTE_OFF/ROW_WAIT
  		                                       ; are defined to be. Falls through on $D2 into .loopend,
  		                                       ; which is why that block has to stay right here.
-@@ -604,6 +492,10 @@
+@@ -604,6 +516,10 @@
  		tay                                    ; same reasoning - jump straight in with Y set
  		jmp .nextcmd
  
@@ -684,7 +738,7 @@
  		; Masking rather than subtracting: the dispatch above already proved which range the
  		; byte is in, so the low bits are the value and a single AND isolates them - one byte
  		; less than sec/sbc, and it leaves no carry to think about.
-@@ -621,18 +513,124 @@
+@@ -621,18 +537,124 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
@@ -699,7 +753,7 @@
 +		cmp #CMD_SPEED                         ; C set for $D4, and neither iny nor lda touch it
 +		endif
 +		endif
-+		iny
+ 		iny
 +		lda (ZP_lb),y
 +		if def v_speedrows
 +		if def v_slide
@@ -707,7 +761,7 @@
 +		endif
 +		sta Song_Speed                         ; this row already lasts the new speed
 +		sta Song_Next
- 		iny
++		iny
 +		eor (ZP_lb),y
 +		sta Song_Delta
 +		if def v_slide
@@ -869,6 +923,29 @@
  local function ParseSingleNoteLine(line)
      line = line:gsub(" ", "")
      if line == "" then
+@@ -130,7 +165,7 @@
+ 
+     -- Optional comma-separated sections after SR (no section body contains a comma):
+     -- WAVE $81 $41 control bytes/frame | ARP "C-1" .. [LOOP|ROOT|HOLD] absolute notes/frame |
+-    -- FLT ($mv $rr $cc [+n]) $xx | PW w +d [CONT] | VIB $ds $depth | SLIDE +n | NOHR
++    -- FLT ($mv $rr $cc [+n [$ee]]) $xx | PW w +d [CONT] | VIB $ds $depth | SLIDE +n | NOHR
+     local arp, flt, pw, wave, nohr, vib, slide = nil, nil, nil, nil, false, nil, nil
+ 
+     for seg in Trim(rest):gmatch("[^,]+") do
+@@ -232,10 +267,10 @@
+                             assert(false, "INSTRUMENTS: cannot parse FLT group token '" .. tok .. "': " .. line)
+                         end
+                     end
+-                    assert(#vals == 3,
++                    assert(#vals == 3 or (#vals == 4 and rate ~= 0),
+                         "INSTRUMENTS: a FLT group is (mode+volume, resonance+routing, cutoff) " ..
+-                        "with an optional signed sweep rate: " .. line)
+-                    flt[#flt + 1] = { setup = vals, rate = rate }
++                        "with an optional signed sweep rate and the cutoff it turns back at: " .. line)
++                    flt[#flt + 1] = { setup = vals, rate = rate, turn = vals[4] }
+                     i = nxt
+                 else
+                     local v, nxt = body:match("^%$(%x+)()", i)
 @@ -501,7 +536,7 @@
              local row = ParseSingleNoteLine(raw)
              if row then
@@ -1025,7 +1102,45 @@
  
  -- Instrument tables (ad_table / sr_table / wt_start), indexed by instrument number - 1.
  -- wt_start points into wt_data, the shared pool of control-byte programs terminated by $00.
-@@ -868,27 +951,38 @@
+@@ -811,6 +894,17 @@
+     -- plain cutoff step has to stay inside $01..$FE - the only value that costs is a cutoff
+     -- high byte of exactly 0 or 255, either of which is a degenerate setting anyway.
+     local flt_values, flt_pool, flt_offset = {}, { "$00" }, {}
++
++    -- Where a sweep turns back: the end asked for, or the last before it, at least one step out
++    -- and inside a byte; with none, as far as the rate goes. As FilterStep.ReachableEnd.
++    local function ReachableEnd(start, rate, wanted)
++        local target = wanted or (rate > 0 and 0xff or 0x00)
++        local steps = (target - start) / rate
++        steps = steps >= 0 and math.floor(steps) or math.ceil(steps)
++        local room = rate > 0 and math.floor((0xff - start) / rate) or math.floor(start / -rate)
++        steps = math.max(1, math.min(steps, math.max(1, room)))
++        return start + steps * rate
++    end
+     for id = 1, instrument_count do
+         local flt = instruments[id].flt
+         if not flt then
+@@ -831,7 +925,18 @@
+                     bytes[#bytes + 1] = 0xff
+                     bytes[#bytes + 1] = mode
+                     bytes[#bytes + 1] = res
+-                    bytes[#bytes + 1] = item.rate % 256
++                    -- Rate and end only in a song with a sweep: without one the player reads neither.
++                    if v_fltsweep_scan then
++                        local turn = 0
++                        if item.rate ~= 0 then
++                            turn = ReachableEnd(cut, item.rate, item.turn)
++                            assert(turn >= 0x00 and turn <= 0xff,
++                                "Instrument " .. string.format("%02d", id) ..
++                                ": FLT sweep from " .. string.format("$%02x", cut) .. " would leave the byte at once")
++                        end
++                        bytes[#bytes + 1] = item.rate % 256
++                        bytes[#bytes + 1] = turn
++                    end
+                     bytes[#bytes + 1] = cut
+                 end
+             end
+@@ -868,27 +973,38 @@
          pw_add_values[id]  = string.format("$%02x", add % 256)
      end
  
@@ -1078,7 +1193,7 @@
      end
      assert(any_vibrato == (v_vibrato_scan == true),
          "vibrato scan disagrees with the parsed INSTRUMENTS - v_songfile must be set before " ..
-@@ -898,20 +992,6 @@
+@@ -898,20 +1014,6 @@
          EmitByteTable("vib_depth:", vib_depth_values)
      end
  
@@ -1099,7 +1214,7 @@
  end
  
  -- Song-order resolution per channel: a list of pattern numbers, optionally followed by
-@@ -1010,8 +1090,8 @@
+@@ -1010,8 +1112,8 @@
  asm("; --------------------------------------")
  asm("")
  
@@ -1110,7 +1225,7 @@
  
  -- Note dictionary id -> chromatic index, for the musicshower's note column. The dictionary
  -- is first-occurrence order, so an id says nothing about pitch on its own. v_musicshower is
-@@ -1053,6 +1133,11 @@
+@@ -1053,6 +1155,11 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
@@ -1122,7 +1237,7 @@
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1063,19 +1148,51 @@
+@@ -1063,19 +1170,51 @@
              elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then

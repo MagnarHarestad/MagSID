@@ -27,9 +27,11 @@ public sealed class FilterEngine
     public int Cutoff { get; private set; } = -1;
 
     // The sweep outlives the program that started it, so it lives here rather than being reset
-    // by Claim. A free-running phase, not a cutoff with bounds - see StepSweep.
-    private int _phase;
+    // by Claim: the cutoff it is at, its signed rate, and the two cutoffs it turns back at.
+    private int _sweepCut;
     private int _sweepRate;
+    private int _sweepStart;
+    private int _sweepEnd;
 
     /// <summary>Lets the filter go: no program, no sweep. Writes nothing - the caller sets the
     /// registers it wants the chip left with.</summary>
@@ -37,8 +39,10 @@ public sealed class FilterEngine
     {
         _program = null;
         _stepIndex = 0;
-        _phase = 0;
+        _sweepCut = 0;
         _sweepRate = 0;
+        _sweepStart = 0;
+        _sweepEnd = 0;
         LastStep = -1;
         OwnerInstrumentNumber = -1;
         FramesSinceClaim = 0;
@@ -81,28 +85,37 @@ public sealed class FilterEngine
 
         LastStep = _stepIndex;
         var step = _program[_stepIndex++];
+        int before = _sweepRate;
 
         if (step.IsSetup)
         {
             write(0x18, step.ModeVolume!.Value);       // filter mode + master volume
             write(0x17, step.ResonanceRouting!.Value); // resonance + which voices are routed
-            _sweepRate = step.SweepRate;                // 0 stops a sweep already running
+
+            // 0 stops a sweep; any other rate starts one, unless one is already running - that one
+            // goes on as it is, so a drum hitting again leaves it alone.
+            if (step.SweepRate == 0 || before == 0)
+            {
+                _sweepRate = step.SweepRate;
+                _sweepEnd = step.SweepEnd;
+            }
         }
 
         write(0x16, step.Cutoff);
         Cutoff = step.Cutoff;
 
-        // With no sweep running, a step is where the next one starts from: the sweep doubles its
-        // phase on the way out, so the phase is the cutoff halved. A running sweep keeps its place.
-        if (_sweepRate == 0)
-            _phase = step.Cutoff >> 1;
+        // With no sweep running before it, a step is where the next one starts, and turns back to.
+        if (before == 0)
+        {
+            _sweepCut = step.Cutoff;
+            _sweepStart = step.Cutoff;
+        }
     }
 
     /// <summary>
-    /// A free-running triangle rather than a cutoff walking between two bounds: the phase
-    /// advances by the rate and wraps, and the cutoff is read off it by folding the top half
-    /// back down and doubling. The fold is what makes it ping-pong, and it is why the player
-    /// needs no bound bytes and none of the compares they would cost.
+    /// The cutoff moves by the signed rate every frame and turns back at either end. The ends are a
+    /// whole number of rates apart (see <see cref="FilterStep.ReachableEnd"/>), so it lands on
+    /// them, and turning is the rate's sign flipped - 0 - rate, as a byte, as the player does it.
     /// </summary>
     private void StepSweep(Action<int, int> write)
     {
@@ -111,10 +124,11 @@ public sealed class FilterEngine
             return;
         }
 
-        _phase = (_phase + _sweepRate) & 0xFF;
+        _sweepCut = (_sweepCut + _sweepRate) & 0xFF;
+        write(0x16, _sweepCut);
+        Cutoff = _sweepCut;
 
-        int folded = _phase >= 0x80 ? _phase ^ 0xFF : _phase;
-        write(0x16, folded << 1);
-        Cutoff = folded << 1;
+        if (_sweepCut == _sweepEnd || _sweepCut == _sweepStart)
+            _sweepRate = unchecked((sbyte)-_sweepRate);
     }
 }

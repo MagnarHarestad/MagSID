@@ -3,8 +3,8 @@ using MagSid.Core.Model;
 namespace MagSid.Playback.Tests;
 
 /// <summary>
-/// The two sweeps whose shape is easy to get subtly wrong: the filter's triangle and the pulse
-/// width's two widths. Both are pinned against what the assembly actually produces.
+/// The two sweeps whose shape is easy to get subtly wrong: the filter's, between its two ends, and
+/// the pulse width's two widths. Both are pinned against what the assembly actually produces.
 /// </summary>
 public class SweepTests
 {
@@ -42,16 +42,16 @@ public class SweepTests
         [.. writes.Where(w => w.Offset == 0x16).Select(w => w.Value)];
 
     [Fact]
-    public void The_filter_sweep_rises_folds_at_the_top_and_comes_back_down()
+    public void The_filter_sweep_goes_to_its_end_and_back()
     {
         var instrument = Pulse();
-        instrument.Filter.Add(FilterStep.Setup(0x1f, 0xf1, 0x10, sweepRate: 32));
+        instrument.Filter.Add(FilterStep.Setup(0x1f, 0xf1, 0x10, sweepRate: 32, sweepEnd: 0x90));
 
         var (writes, sequencer) = Build(instrument, Held(40));
 
         // The filter steps before the row fetch, same as the wavetable automation - so frame 0
         // (the trigger) only claims the filter, and its first real step waits for frame 1. That
-        // is where the setup's own cutoff (0x10) and the sweep's first fold (0x40, immediately
+        // is where the setup's own cutoff (0x10) and the sweep's first step (0x30, immediately
         // overwriting it) both land instead.
         var cutoffs = new List<int>();
         for (int frame = 0; frame < 11; frame++)
@@ -61,10 +61,9 @@ public class SweepTests
             cutoffs.AddRange(CutoffWrites(writes));
         }
 
-        // Phase steps 32 at a time and the cutoff is (phase folded) * 2, so it climbs to the
-        // top, turns, and comes back - without ever being compared against a bound. TakeLast
+        // 32 a frame, turning at the end (0x90) and at the cutoff it started from (0x10). TakeLast
         // drops the setup step's own leading 0x10, which the sweep overwrites on that same frame.
-        Assert.Equal([0x40, 0x80, 0xc0, 0xfe, 0xbe, 0x7e, 0x3e, 0x00, 0x40, 0x80], cutoffs.TakeLast(10));
+        Assert.Equal([0x30, 0x50, 0x70, 0x90, 0x70, 0x50, 0x30, 0x10, 0x30, 0x50], cutoffs.TakeLast(10));
     }
 
     [Fact]

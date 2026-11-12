@@ -139,7 +139,7 @@ public static class InstrumentFile
             instrument.Filter.Add(step["modeVolume"] is null
                 ? FilterStep.Sweep(cutoff)
                 : FilterStep.Setup(Byte(step, "modeVolume"), Byte(step, "resonanceRouting"), cutoff,
-                                   Int(step, "sweep", 0)));
+                                   Int(step, "sweep", 0), step["sweepEnd"] is null ? null : Byte(step, "sweepEnd")));
         }
 
         var issues = SongValidator.ValidateInstrument(instrument, "Instrument");
@@ -160,6 +160,8 @@ public static class InstrumentFile
         node["cutoff"] = Hex(step.Cutoff);
         if (step.IsSetup)
             node["sweep"] = step.SweepRate;
+        if (step.SweepRate != 0)
+            node["sweepEnd"] = Hex((byte)step.SweepEnd);
         return node;
     }
 

@@ -56,7 +56,7 @@ public sealed class InstrumentTables
         var instruments = song.Instruments.OrderBy(i => i.Number).ToList();
         var wavetable = BuildWavetablePool(instruments);
         var arpeggio = BuildArpeggioPool(instruments, notes);
-        var filter = BuildFilterPool(instruments);
+        var filter = BuildFilterPool(instruments, Core.SongSizeCalculator.UsesFilterSweep(song));
 
         var order = PlayerOrder(song);
         byte[] InPlayerOrder(Func<int, byte> value)
@@ -188,10 +188,11 @@ public sealed class InstrumentTables
         return (starts, pool.ToArray());
     }
 
-    /// <summary>A plain cutoff step is one byte; $FF introduces a four-byte setup record
-    /// (mode+volume, resonance+routing, sweep rate, cutoff); $00 ends a program and holds the last
-    /// cutoff. $00 and $FF being taken is why a cutoff has to stay inside $01..$FE.</summary>
-    private static (byte[] Starts, byte[] Pool) BuildFilterPool(List<Instrument> instruments)
+    /// <summary>A plain cutoff step is one byte; $FF introduces a setup record (mode+volume,
+    /// resonance+routing, in a song with a sweep its rate and end, cutoff); $00 ends a program and
+    /// holds the last cutoff. $00 and $FF being taken is why a cutoff has to stay inside
+    /// $01..$FE.</summary>
+    private static (byte[] Starts, byte[] Pool) BuildFilterPool(List<Instrument> instruments, bool sweep)
     {
         var pool = new List<byte> { 0x00 };
         var offsets = new Dictionary<string, int>();
@@ -215,7 +216,11 @@ public sealed class InstrumentTables
                     bytes.Add(0xFF);
                     bytes.Add(step.ModeVolume!.Value);
                     bytes.Add(step.ResonanceRouting!.Value);
-                    bytes.Add((byte)(step.SweepRate & 0xFF));
+                    if (sweep)
+                    {
+                        bytes.Add((byte)(step.SweepRate & 0xFF));
+                        bytes.Add((byte)step.SweepEnd);
+                    }
                 }
 
                 bytes.Add(step.Cutoff);

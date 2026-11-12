@@ -178,8 +178,8 @@ public class InstrumentSectionTests
 
     [Theory]
     [InlineData("01, $81, $00, $c7, ARP \"B-7\" \"G-3\" LOOP \"E-3\" \"B-7\"")]
-    [InlineData("01, $41, $00, $a8, FLT ($3f $13 $80 +1)")]
-    [InlineData("01, $41, $00, $a8, FLT ($3f $13 $80 -2) $40, PW 2 -3")]
+    [InlineData("01, $41, $00, $a8, FLT ($3f $13 $80 +1 $ff)")]
+    [InlineData("01, $41, $00, $a8, FLT ($3f $13 $80 -2 $00) $40, PW 2 -3")]
     [InlineData("01, $41, $00, $a8, PW 2 +22 CONT")]
     [InlineData("01, $41, $00, $a8, NOHR")]
     [InlineData("01, $41, $00, $a8, PW 6 +24 CONT, NOHR")]

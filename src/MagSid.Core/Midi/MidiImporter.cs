@@ -926,7 +926,7 @@ public static class MidiImporter
             var step = instrument.Filter[i];
             if (step.IsSetup)
                 instrument.Filter[i] = FilterStep.Setup(step.ModeVolume!.Value,
-                    (byte)(step.ResonanceRouting!.Value & 0xF0 | 1 << channel), step.Cutoff, step.SweepRate);
+                    (byte)(step.ResonanceRouting!.Value & 0xF0 | 1 << channel), step.Cutoff, step.SweepRate, step.SweepEnd);
         }
     }
 

@@ -19,7 +19,6 @@ internal sealed class CutoffView : Control
     private IReadOnlyList<FilterStep> _program = [];
     private int[] _cutoffs = [];
     private int _selected = -1;
-    private int _sweep;
     private (int Frame, int Cutoff)? _playhead;
 
     private int _hoverStep = -1;
@@ -52,7 +51,6 @@ internal sealed class CutoffView : Control
             _dragStep = -1;
         _cutoffs = Play(Dragged());
         _selected = selectedStep;
-        _sweep = SweepOf(_program);
         Invalidate();
     }
 
@@ -206,17 +204,12 @@ internal sealed class CutoffView : Control
         }
     }
 
-    /// <summary>The sweep left running when the program ends - the last setup step's.</summary>
-    private static int SweepOf(IReadOnlyList<FilterStep> program)
+    /// <summary>Frames for the sweep left running when the program ends - the last setup step's -
+    /// to go to its end and back, 0 without one.</summary>
+    private static int SweepPeriod(IReadOnlyList<FilterStep> program)
     {
-        int sweep = 0;
-        foreach (var step in program)
-        {
-            if (step.IsSetup)
-                sweep = step.SweepRate;
-        }
-
-        return sweep;
+        var last = program.LastOrDefault(s => s.IsSetup);
+        return last.SweepRate == 0 ? 0 : 2 * ((last.SweepEnd - last.Cutoff) / last.SweepRate);
     }
 
     /// <summary>The graph frame a played frame lands on. Past the end, a running sweep goes round
@@ -227,7 +220,7 @@ internal sealed class CutoffView : Control
         if (frame < _cutoffs.Length)
             return frame;
 
-        int period = _sweep == 0 ? 0 : 512 / Math.Abs(_sweep);
+        int period = SweepPeriod(_program);
         int tail = _cutoffs.Length - _program.Count;
         return period > 0 && period <= tail
             ? _program.Count + ((frame - _program.Count) % period)
@@ -239,8 +232,8 @@ internal sealed class CutoffView : Control
     /// triangle and a still cutoff a short tail.</summary>
     private static int[] Play(IReadOnlyList<FilterStep> program)
     {
-        int sweep = SweepOf(program);
-        int tail = sweep == 0 ? 16 : Math.Min(256, 512 / Math.Abs(sweep));
+        int period = SweepPeriod(program);
+        int tail = period == 0 ? 16 : Math.Min(256, period);
         int frames = Math.Clamp(program.Count + tail, 32, 384);
 
         var engine = new FilterEngine();

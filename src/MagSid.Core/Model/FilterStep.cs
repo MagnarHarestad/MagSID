@@ -34,15 +34,19 @@ public readonly record struct FilterStep
     public byte? ResonanceRouting { get; private init; }
 
     /// <summary>
-    /// How fast the cutoff sweeps from here on, signed, 0 for no sweep. Only a setup step
+    /// How far the cutoff moves a frame from here on, signed, 0 to stop a sweep. Only a setup step
     /// carries one.
     ///
-    /// The sweep is a free-running triangle that keeps going long after the program has
-    /// finished, so it is a property of the filter's configuration rather than a step of its
-    /// own - which is also why it rides along in the setup record instead of having a marker
-    /// in the byte stream.
+    /// The sweep goes back and forth between this step's cutoff and <see cref="SweepEnd"/> long
+    /// after the program has finished, so it is a property of the filter's configuration rather
+    /// than a step of its own. A sweep already running when a setup with a rate comes along keeps
+    /// going as it is.
     /// </summary>
     public int SweepRate { get; private init; }
+
+    /// <summary>Where a sweep turns back towards the cutoff it started from: always a whole number
+    /// of rates away, so the sweep lands on it. 0 without a sweep.</summary>
+    public int SweepEnd { get; private init; }
 
     /// <summary>$D416 - the cutoff frequency's high byte, written by every step.</summary>
     public byte Cutoff { get; private init; }
@@ -77,16 +81,33 @@ public readonly record struct FilterStep
     /// value, an existing file authored the same way, or anywhere else. One place, so nothing
     /// downstream (playback, export, the editor's grid) has to re-derive or repeat it.</summary>
     public static FilterStep Setup(byte modeVolume, byte resonanceRouting, byte cutoff,
-                                  int sweepRate = 0) => new()
+                                  int sweepRate = 0, int? sweepEnd = null) => new()
     {
         ModeVolume = (byte)(modeVolume & 0x7f),
         ResonanceRouting = resonanceRouting,
         Cutoff = cutoff,
         SweepRate = sweepRate,
+        SweepEnd = sweepRate == 0 ? 0 : ReachableEnd(cutoff, sweepRate, sweepEnd),
     };
 
+    /// <summary>
+    /// The end a sweep from <paramref name="start"/> can land on: the one asked for, or the last
+    /// before it, at least one step out and inside a byte. With none asked for, as far as the rate
+    /// goes. Startup\Tables.s does the same for a file it reads.
+    /// </summary>
+    public static int ReachableEnd(int start, int rate, int? end)
+    {
+        int target = end ?? (rate > 0 ? 0xFF : 0x00);
+        int steps = (target - start) / rate;
+        int room = rate > 0 ? (0xFF - start) / rate : start / -rate;
+        return start + (Math.Clamp(steps, 1, Math.Max(1, room)) * rate);
+    }
+
     /// <summary>The same step with another cutoff, kept inside $01..$FE - $00 ends a program and
-    /// $FF opens a setup record, so neither is a cutoff.</summary>
-    public FilterStep WithCutoff(int cutoff) =>
-        this with { Cutoff = (byte)Math.Clamp(cutoff, MinCutoff, MaxCutoff) };
+    /// $FF opens a setup record, so neither is a cutoff. A sweep's end moves to stay reachable.</summary>
+    public FilterStep WithCutoff(int cutoff)
+    {
+        byte kept = (byte)Math.Clamp(cutoff, MinCutoff, MaxCutoff);
+        return IsSetup ? Setup(ModeVolume!.Value, ResonanceRouting!.Value, kept, SweepRate, SweepEnd) : Sweep(kept);
+    }
 }

@@ -64,6 +64,7 @@ public static class SongImageBuilder
             ArpData = asm.NewLabel("arp_data"),
             FltStart = asm.NewLabel("flt_start"),
             FltData = asm.NewLabel("flt_data"),
+            FltDataNext = asm.NewLabel("flt_data+1"),
             PwInit = asm.NewLabel("pw_init"),
             PwAdd = asm.NewLabel("pw_add"),
             VibDs = features.Vibrato ? asm.NewLabel("vib_ds") : null,
@@ -113,6 +114,7 @@ public static class SongImageBuilder
         EmitTable(asm, tables.ArpStart, instrumentTables.ArpeggioStart);
         EmitWithoutEntry0(asm, tables.ArpData, instrumentTables.ArpeggioPool);
         EmitTable(asm, tables.FltStart, instrumentTables.FilterStart);
+        asm.Define(tables.FltDataNext);
         EmitWithoutEntry0(asm, tables.FltData, instrumentTables.FilterPool);
         EmitTable(asm, tables.PwInit, instrumentTables.PulseInit);
         EmitTable(asm, tables.PwAdd, instrumentTables.PulseAdd);

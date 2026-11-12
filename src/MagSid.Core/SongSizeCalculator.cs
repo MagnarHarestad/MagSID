@@ -45,10 +45,11 @@ public static class SongSizeCalculator
     // Then 33 less, 31 with slides only: X runs 0, 7, 14, as in GoatTracker and SID Duzz It, so there
     // is no SID offset to load and Y is free for the instrument; voice_note went, and Voice_Tick
     // falls into Voice_PlayCurrent.
-    private static readonly int PlayerBare = 418 + HardRestartBytes;
-    private static readonly int PlayerVibrato = 500 + HardRestartBytes;
-    private static readonly int PlayerSlide = 467 + HardRestartBytes;
-    private static readonly int PlayerVibratoAndSlide = 526 + HardRestartBytes;
+    // 2026-11-12: 23 less in each - the filter sweep, and a setup's rate, only in a song with a sweep.
+    private static readonly int PlayerBare = 395 + HardRestartBytes;
+    private static readonly int PlayerVibrato = 477 + HardRestartBytes;
+    private static readonly int PlayerSlide = 444 + HardRestartBytes;
+    private static readonly int PlayerVibratoAndSlide = 503 + HardRestartBytes;
 
     /// <summary>Keeping the waveform through the hard restart loads and masks it rather than
     /// loading $08 - two bytes. The four figures above are the $08 player's.</summary>
@@ -71,9 +72,9 @@ public static class SongSizeCalculator
     /// <summary>With funk speed, a second seed - and the reload above replaces funk's own.</summary>
     private const int SpeedRowFunkSeedBytes = 4;
 
-    /// <summary>A filter step taken while no sweep runs sets where the next one starts:
-    /// ldy/bne/lsr/sta.</summary>
-    private const int FilterSweepStartBytes = 7;
+    /// <summary>The filter sweep, in a song with one: reading a setup's rate and end, where it
+    /// starts, and the sweep itself, which turns back at either end.</summary>
+    private const int FilterSweepBytes = 55;
 
     /// <summary>The cpy/bcs that keeps instruments without vibrato out of the vibrato tables.</summary>
     private const int VibratoCompareBytes = 4;
@@ -140,7 +141,7 @@ public static class SongSizeCalculator
             player += VibratoCompareBytes;
 
         if (UsesFilterSweep(song))
-            player += FilterSweepStartBytes;
+            player += FilterSweepBytes;
 
         int patternBytes = song.Patterns.Sum(p => EncodedLength(p.Rows));
 
@@ -350,20 +351,24 @@ public static class SongSizeCalculator
     }
 
     /// <summary>A plain cutoff step is one byte; a setup record is $FF plus mode+volume,
-    /// resonance+routing, sweep rate and cutoff. $00 ends a program.</summary>
+    /// resonance+routing - in a song with a sweep, its rate and end - and cutoff. $00 ends a
+    /// program.</summary>
     private static int FilterPoolLength(Song song)
     {
         int length = 1;
+        bool sweep = UsesFilterSweep(song);
         var seen = new HashSet<string>();
         foreach (var instrument in song.Instruments)
         {
             if (instrument.Filter.Count == 0)
                 continue;
 
-            int bytes = instrument.Filter.Sum(step => step.IsSetup ? 5 : 1) + 1;
+            int bytes = instrument.Filter.Sum(step => step.IsSetup ? (sweep ? 6 : 4) : 1) + 1;
             string key = string.Join(",", instrument.Filter.Select(s =>
                 s.IsSetup
-                    ? $"S{s.ModeVolume}:{s.ResonanceRouting}:{s.SweepRate}:{s.Cutoff}"
+                    ? sweep
+                        ? $"S{s.ModeVolume}:{s.ResonanceRouting}:{s.SweepRate}:{s.SweepEnd}:{s.Cutoff}"
+                        : $"S{s.ModeVolume}:{s.ResonanceRouting}:{s.Cutoff}"
                     : $"C{s.Cutoff}"));
             if (seen.Add(key))
                 length += bytes;

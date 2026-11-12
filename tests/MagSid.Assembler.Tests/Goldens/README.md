@@ -135,8 +135,19 @@ steps that set it; Lightforce's only step sets its rate first, so it plays as be
 images first rebuilt byte for byte; all the other images came out byte for byte as before, and old and new wrote the
 same SID registers for 30000 frames on every song in `SongData` but PowerBass, the song this is for.
 
+All 38 were reassembled on **2026-11-12**, when the filter sweep got a start and an end and left every song that has no
+sweep. Without one (`v_fltsweep` unset) the player has no sweep code, a setup record is `$FF`, mode+volume,
+resonance+routing and cutoff, and `filter_phase`/`filter_delta` are gone from zero page: 23 bytes of code, 1 a setup and 2
+of zero page less. With one, a setup record also carries the rate and the cutoff it turns back at (`ReachableEnd` in
+`Tables.s`, as `FilterStep.ReachableEnd`), and the sweep moves the cutoff itself by the rate a frame, turning at either end
+(`cmp filter_end` / `cmp filter_start`, then `0 - filter_delta`), in place of the folded triangle that doubled it. A setup
+with a rate starts a sweep from its own cutoff only when none runs; one already running goes on as it is. 55 bytes and 4 of
+zero page, against the old 30 and 2. Lightforce's instrument 02 became GRG's Lightforce 2006 filter, `($3f $13 $fe -1
+$3e)`; `filter_sweep.s` was rewritten for ends. Same procedure, with the old 36 first rebuilt byte for byte; old and new
+then wrote the same SID registers for 30000 frames on every song in `SongData` without a sweep.
+
 `player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
-the release, funk speed, Fxy rows, the loop restore, the sweep start and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
+the release, funk speed, Fxy rows, the loop restore, the sweep's ends and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 
 `opcodes.txt` is the emitter's opcode table, one `mnemonic mode hex` line each, frozen after

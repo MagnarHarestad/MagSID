@@ -133,6 +133,13 @@ public static class SongValidator
                 break;
             }
 
+            if (step.SweepRate != 0 && step.SweepEnd is < 0x00 or > 0xFF)
+            {
+                issues.Add(new ValidationIssue(
+                    $"{who}: FLT sweep from ${step.Cutoff:x2} at {step.SweepRate:+0;-0} would leave the byte at once."));
+                break;
+            }
+
             if (step.Cutoff is < FilterStep.MinCutoff or > FilterStep.MaxCutoff)
             {
                 issues.Add(new ValidationIssue(

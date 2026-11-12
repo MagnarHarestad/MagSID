@@ -122,8 +122,8 @@ public class ExportFormatTests
     }
 
     [Theory]
-    [InlineData("SOS.s", 0xD0)]                 // 48 bytes, the smallest player: no effects
-    [InlineData("BellaCiao.s", 0xBB)]           // 69, with vibrato
+    [InlineData("SOS.s", 0xD2)]                 // 46 bytes, the smallest player: no effects
+    [InlineData("BellaCiao.s", 0xBD)]           // 67, with vibrato
     public void The_top_of_zero_page_ends_on_ff_whatever_the_song_needs(string file, int top)
     {
         var song = PatternsFileReader.Read(SongPath(file));
@@ -147,7 +147,7 @@ public class ExportFormatTests
     [Fact]
     public void The_zero_page_it_reports_moves_with_the_start()
     {
-        Assert.Equal((0x80, 0xC4), SidExporter.ZeroPageRange(BellaCiao(), 0x80));
+        Assert.Equal((0x80, 0xC2), SidExporter.ZeroPageRange(BellaCiao(), 0x80));
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class ExportFormatTests
     [Theory]
     [InlineData(0x00)]      // the CPU's own port
     [InlineData(0x01)]
-    [InlineData(0xBC)]      // one too high for BellaCiao's 69 bytes
+    [InlineData(0xBE)]      // one too high for BellaCiao's 67 bytes
     [InlineData(0xFF)]
     [InlineData(0x100)]     // not zero page at all
     public void A_zero_page_the_player_does_not_fit_in_is_refused_in_every_format(int zeroPage)
@@ -173,8 +173,8 @@ public class ExportFormatTests
     }
 
     [Theory]
-    [InlineData("BellaCiao.s", 0x20, 0x64)]     // vibrato
-    [InlineData("SOS.s", 0x20, 0x4F)]           // neither effect
+    [InlineData("BellaCiao.s", 0x20, 0x62)]     // vibrato
+    [InlineData("SOS.s", 0x20, 0x4D)]           // neither effect
     public void The_zero_page_it_reports_is_what_the_player_was_built_with(string file, int first, int last)
     {
         var song = PatternsFileReader.Read(SongPath(file));

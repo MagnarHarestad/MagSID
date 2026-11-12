@@ -7,8 +7,8 @@ namespace MagSid.Editor.App.Daw;
 ///
 /// A sweep step only moves the cutoff, so that is all it shows. A setup step also writes $D418 -
 /// filter mode and master volume - and $D417 - resonance and which voices pass through - plus the
-/// sweep rate, and those are the four values the retro editor kept in hex fields and this view had
-/// no way to reach at all.
+/// sweep rate and the cutoff the sweep turns back at, which the retro editor kept in fields and this
+/// view had no way to reach at all.
 ///
 /// The SETUP toggle converts between the two, which is a real change to the byte stream: a setup
 /// record costs five bytes against a sweep step's one, and opens with $FF. A sweep step has nowhere
@@ -23,6 +23,7 @@ internal sealed class FilterStepEditor : Panel
     private readonly KnobControl _volume = new();
     private readonly KnobControl _resonance = new();
     private readonly KnobControl _sweep = new();
+    private readonly KnobControl _end = new();
 
     private readonly ToggleButton _lowPass = new("LP");
     private readonly ToggleButton _bandPass = new("BP");
@@ -115,6 +116,7 @@ internal sealed class FilterStepEditor : Panel
             _voice3.Checked = (resonanceRouting & 0x04) != 0;
 
             _sweep.SetValueSilently(setup.SweepRate);
+            _end.SetValueSilently(setup.SweepRate != 0 ? setup.SweepEnd : 0xFF);
 
             // A sweep step carries none of the rest, so showing its controls would invite edits
             // that go nowhere.
@@ -133,7 +135,7 @@ internal sealed class FilterStepEditor : Panel
             : null;
 
     private IEnumerable<Control> SetupOnlyControls() =>
-        [_volume, _resonance, _sweep, _lowPass, _bandPass, _highPass, _voice1, _voice2, _voice3];
+        [_volume, _resonance, _sweep, _end, _lowPass, _bandPass, _highPass, _voice1, _voice2, _voice3];
 
     private void Commit()
     {
@@ -165,7 +167,7 @@ internal sealed class FilterStepEditor : Panel
             lock (Instrument.ProgramLock)
             {
                 instrument.Filter[_step] = FilterStep.Setup(
-                    (byte)modeVolume, (byte)resonanceRouting, cutoff, _sweep.Value);
+                    (byte)modeVolume, (byte)resonanceRouting, cutoff, _sweep.Value, _end.Value);
             }
         }
 
@@ -175,7 +177,7 @@ internal sealed class FilterStepEditor : Panel
 
     private void Wire()
     {
-        foreach (var knob in new[] { _cutoff, _volume, _resonance, _sweep })
+        foreach (var knob in new[] { _cutoff, _volume, _resonance, _sweep, _end })
             knob.ValueChanged += _ => Commit();
 
         foreach (var toggle in new[] { _setup, _lowPass, _bandPass, _highPass, _voice1, _voice2, _voice3 })
@@ -195,15 +197,16 @@ internal sealed class FilterStepEditor : Panel
         Knob(_volume, "Vol", 0, 15, v => $"${v:X}", 15, 78);
         Knob(_resonance, "Res", 0, 15, v => $"${v:X}", 15, 144);
         Knob(_sweep, "Sweep", -128, 127, v => v.ToString("+#;-#;0"), 0, 210);
+        Knob(_end, "End", 0x00, 0xFF, v => $"${v:X2}", 0xFF, 276);
 
         // The three filter modes are independent bits in $D418 and really can be combined - a
         // notch is LP and HP together - so these latch rather than choosing one.
-        Row([_lowPass, _bandPass, _highPass], 290, 26, "MODE");
-        Row([_voice1, _voice2, _voice3], 290, 76, "ROUTING");
+        Row([_lowPass, _bandPass, _highPass], 356, 26, "MODE");
+        Row([_voice1, _voice2, _voice3], 356, 76, "ROUTING");
 
         _setup.Accent = DawPalette.Filter;
         _setup.Size = new Size(84, 26);
-        _setup.Location = new Point(410, 26);
+        _setup.Location = new Point(476, 26);
 
         Controls.Add(_caption);
         Controls.Add(_setup);
@@ -213,7 +216,7 @@ internal sealed class FilterStepEditor : Panel
     /// <summary>The cutoff graph takes everything right of SETUP.</summary>
     protected override void OnLayout(LayoutEventArgs levent)
     {
-        const int left = 512;
+        const int left = 578;
         _cutoffGraph.Bounds = new Rectangle(left, 8, Math.Max(0, Width - left - 12), Math.Max(0, Height - 16));
         base.OnLayout(levent);
     }

@@ -207,7 +207,7 @@ public static class ShowerProgram
         asm.Bytes(cells.Select(c => (byte)(ScreenAt(c.Row, c.Column) >> 8)));
 
         asm.Define(text);
-        asm.Bytes(ScreenText(title, author));
+        asm.Bytes(ScreenText(title, author, sweep: zp.FilterDelta != 0));
     }
 
     private static List<HexCell> HexCells(ZeroPageLayout zp)
@@ -219,8 +219,11 @@ public static class ShowerProgram
             new(ShownModeVolume, ModeVolumeRow, Column(0) + 1),
             new(ShownResonance, ResonanceRow, Column(0) + 1),
             new(ShownCutoff, CutoffRow, Column(0) + 1),
-            new(zp.FilterDelta, FilterAddRow, Column(0) + 1),
         };
+
+        // The sweep's rate, in a song with a sweep: without one the player has no such byte.
+        if (zp.FilterDelta != 0)
+            cells.Add(new(zp.FilterDelta, FilterAddRow, Column(0) + 1));
 
         for (int voice = 0; voice < Song.ChannelCount; voice++)
         {
@@ -554,7 +557,7 @@ public static class ShowerProgram
         asm.Rts();
     }
 
-    private static byte[] ScreenText(string title, string author)
+    private static byte[] ScreenText(string title, string author, bool sweep)
     {
         var rows = new Dictionary<int, string>
         {
@@ -577,7 +580,7 @@ public static class ShowerProgram
             [ModeVolumeRow] = "FILTER/VOLUME:",
             [ResonanceRow] = "FILTER RES+V.:",
             [CutoffRow] = "FILTER CUTOFF:",
-            [FilterAddRow] = "FILTER ADD...:",
+            [FilterAddRow] = sweep ? "FILTER ADD...:" : "",
             [FooterRow] = Centred("MAGSID MUSICSHOWER"),
         };
 
