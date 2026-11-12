@@ -118,6 +118,8 @@ public static class AboutDocument
              "  Shift+End          Cut the pattern off after the cursor\n" +
              "  Ctrl+L / Ctrl+E    Loop start / loop end\n" +
              "  Right-click PAT    Loop start, loop end and its plays, restart the channel here\n" +
+             "  Drag with mouse    Select rows of one channel; Esc clears the selection\n" +
+             "  Ctrl+C / Ctrl+V    Copy the selection / paste it from the cursor down (Cmd on a Mac)\n" +
              "  Shift+C / Shift+V  Copy / paste the whole pattern\n" +
              "  Click CH header    Mute / unmute the channel\n\n");
         Body("LE04 plays the looped section four times; a bare LE loops forever. On an LE row, " +

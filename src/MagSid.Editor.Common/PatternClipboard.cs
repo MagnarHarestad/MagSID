@@ -43,6 +43,15 @@ public static class PatternClipboard
         LastCopied = ClipboardKind.Slides;
     }
 
+    /// <summary>Rows selected and copied in Retro, in order: a paste writes them row by row from the
+    /// cursor down, across patterns as the grid shows them. Kept apart from Shift+C's whole pattern,
+    /// which pastes into one pattern.</summary>
+    public static IReadOnlyList<PatternRow> SelectedRows => _selectedRows;
+
+    private static List<PatternRow> _selectedRows = [];
+
+    public static void CopySelectedRows(IEnumerable<PatternRow> rows) => _selectedRows = [.. rows];
+
     /// <summary>Which of the roll's two copies was made last - what Ctrl+V puts down.</summary>
     public static ClipboardKind LastCopied { get; private set; } = ClipboardKind.Notes;
 

@@ -126,6 +126,7 @@ public sealed class TrackerGridControl : Control
     private static readonly Color ColorLinked = Color.FromArgb(0x7F, 0x77, 0xDD);
     private static readonly Brush BrushLinkedPass = new SolidBrush(Color.FromArgb(34, ColorLinked));
     private static readonly Brush BrushLinkedRail = new SolidBrush(Color.FromArgb(170, ColorLinked));
+    private static readonly Brush BrushSelection = new SolidBrush(Color.FromArgb(0x2A, 0x48, 0x78));
     private static readonly Pen PenLinkedEcho = new(Color.FromArgb(200, ColorLinked)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
     private static readonly Brush BrushLoopMarker = new SolidBrush(ColorLoopMarker);
     private static readonly Brush BrushOrderTrack = new SolidBrush(ColorOrderTrack);
@@ -218,6 +219,13 @@ public sealed class TrackerGridControl : Control
     /// again lands on its next pass, not its first.</summary>
     private readonly int[] _lastNth = [-1, -1, -1];
     private bool _isPlaybackActive;
+
+    /// <summary>Rows of one channel picked by dragging with the left button, from the row the drag
+    /// began on to the one it reached, in the grid's numbering - what Ctrl+C copies. Null for none.</summary>
+    private (int Channel, int From, int To)? _selection;
+
+    /// <summary>Where the left button went down, while it is held.</summary>
+    private (int Channel, int Row)? _dragFrom;
 
     /// <summary>One RowTriggered event, timestamped in audio samples rather than wall-clock -
     /// see <see cref="_playbackHistory"/>.</summary>
@@ -386,6 +394,7 @@ public sealed class TrackerGridControl : Control
     public void SetSong(Song song)
     {
         _song = song;
+        _selection = null;
         _cursorRow = Math.Max(0, _cursorRow);
 
         // Mute is a per-listening-session convenience, not a song setting - carrying it over
@@ -407,6 +416,7 @@ public sealed class TrackerGridControl : Control
     public void SetSongPosition(int position)
     {
         _songPosition = Math.Max(0, position);
+        _selection = null;
         _cursorRow = 0;
         Invalidate();
     }
@@ -711,6 +721,14 @@ public sealed class TrackerGridControl : Control
         _cursorRow = Math.Max(0, row);
         Invalidate();
 
+        // A left-button drag from here selects rows of this channel; a plain click clears the
+        // selection.
+        if (e.Button == MouseButtons.Left)
+        {
+            _selection = null;
+            _dragFrom = (channel, _cursorRow);
+        }
+
         if (e.Button == MouseButtons.Right && _cursorField == CursorField.Marker)
         {
             ShowMarkerMenu(e.Location);
@@ -860,6 +878,83 @@ public sealed class TrackerGridControl : Control
         bool overMuteToggle = e.Y < HeaderHeight && IsOverOrderTrack(e.X);
         bool overOrderTrack = !_isPlaybackActive && e.Y >= HeaderHeight && IsOverOrderTrack(e.X);
         Cursor = overMuteToggle || overOrderTrack ? Cursors.Hand : Cursors.Default;
+
+        if ((e.Button & MouseButtons.Left) != 0)
+            DragTo(e.Y);
+    }
+
+    /// <summary>The left button held and the pointer at <paramref name="y"/>: the selection runs
+    /// from where it went down to the row there. The cursor stays on the row the drag began on - the
+    /// view is centred on the cursor, and moving it would scroll the rows away under the pointer.</summary>
+    private void DragTo(int y)
+    {
+        if (_dragFrom is not { } from || _isPlaybackActive)
+            return;
+
+        int row = Math.Max(0, TopRow + (int)Math.Floor((y - HeaderHeight) / (double)RowHeight));
+        if (row != from.Row || _selection is not null)
+            Select(from.Channel, from.Row, row);
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        _dragFrom = null;
+    }
+
+    /// <summary>Selects rows <paramref name="from"/> to <paramref name="to"/> of a channel, in the
+    /// grid's numbering, either way round - what a drag does.</summary>
+    public void Select(int channel, int from, int to)
+    {
+        _selection = (channel, Math.Max(0, from), Math.Max(0, to));
+        Invalidate();
+    }
+
+    private bool IsSelected(int channel, int row) =>
+        _selection is { } s && s.Channel == channel && row >= Math.Min(s.From, s.To) && row <= Math.Max(s.From, s.To);
+
+    /// <summary>Ctrl+C: the selected rows, top to bottom, as the grid shows them - a loop's later
+    /// pass copies as the rows it plays. Without a selection, the cursor's row.</summary>
+    public void CopySelection()
+    {
+        var (channel, first, last) = _selection is { } s
+            ? (s.Channel, Math.Min(s.From, s.To), Math.Max(s.From, s.To))
+            : (_cursorChannel, _cursorRow, _cursorRow);
+
+        var rows = new List<PatternRow>();
+        for (int row = first; row <= last; row++)
+        {
+            if (ResolveEditTarget(channel, row, allowExtend: false) is not { } target)
+                break;
+            rows.Add(target.Pattern.Rows[target.LocalRow]);
+        }
+
+        if (rows.Count > 0)
+            PatternClipboard.CopySelectedRows(rows);
+    }
+
+    /// <summary>Ctrl+V: writes the copied rows from the cursor's row down in the cursor's channel,
+    /// one grid row each and across patterns as they come, growing the channel's last pattern
+    /// when they run past its end. The pasted rows are selected afterwards.</summary>
+    public void PasteSelection()
+    {
+        var rows = PatternClipboard.SelectedRows;
+        if (rows.Count == 0 || _song is null)
+            return;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (ResolveEditTarget(_cursorChannel, _cursorRow + i, allowExtend: true) is not { } target)
+                return;
+
+            while (target.Pattern.Rows.Count <= target.LocalRow)
+                target.Pattern.Rows.Add(new HoldRow());
+            target.Pattern.Rows[target.LocalRow] = rows[i];
+        }
+
+        _selection = (_cursorChannel, _cursorRow, _cursorRow + rows.Count - 1);
+        Edited?.Invoke();
+        Invalidate();
     }
 
     private static bool IsOverOrderTrack(int x)
@@ -946,6 +1041,29 @@ public sealed class TrackerGridControl : Control
             _effectEntry = "F";
             Invalidate();
             e.Handled = e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Escape && _selection is not null)
+        {
+            _selection = null;
+            Invalidate();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+C and Ctrl+V - Cmd on a Mac, which the key mapping reports as Control. Copying cannot
+        // lose anything, so it works in Jam mode too; pasting is an edit.
+        if (e.Control && !e.Shift && !e.Alt && e.KeyCode == Keys.C)
+        {
+            CopySelection();
+            e.Handled = true;
+            return;
+        }
+        if (e.Control && !e.Shift && !e.Alt && _editMode && e.KeyCode == Keys.V)
+        {
+            PasteSelection();
+            e.Handled = true;
             return;
         }
 
@@ -2529,6 +2647,8 @@ public sealed class TrackerGridControl : Control
             {
                 int colX = RowNumWidth + ch * ChannelColWidth;
                 DrawOrderTrackCell(g, ch, row, colX, y, isBoundaryRow[ch], row == loopRowPerChannel[ch], resolvedByChannel[ch]);
+                if (IsSelected(ch, row))
+                    g.FillRectangle(BrushSelection, colX + OrderColWidth, y + 1, ChannelColWidth - OrderColWidth, RowHeight - 1);
                 DrawCell(g, ch, row, colX + OrderColWidth, y, resolvedByChannel[ch], markerTextByChannel[ch]);
             }
         }
