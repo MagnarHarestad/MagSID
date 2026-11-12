@@ -115,9 +115,11 @@ public static class AboutDocument
              "  Insert             Insert a hold row\n" +
              "  Delete             Delete the row\n" +
              "  Backspace          Clear the note, or the loop marker\n" +
-             "  Shift+End          Cut the pattern off after the cursor\n" +
+             "  Shift+End          Cut the pattern off after the cursor; on a loop's last row on its\n" +
+             "                     last pass, after the loop\n" +
              "  Ctrl+L / Ctrl+E    Loop start / loop end\n" +
-             "  Right-click PAT    Loop start, loop end and its plays, restart the channel here\n" +
+             "  Right-click PAT    Loop start, loop end and its plays, end or restart the channel here\n" +
+             "  Right-click CH     End the channel here (RST), or restart it from here\n" +
              "  Drag with mouse    Select rows of one channel; Esc clears the selection\n" +
              "  Ctrl+C / Ctrl+V    Copy the selection / paste it from the cursor down (Cmd on a Mac)\n" +
              "  Shift+C / Shift+V  Copy / paste the whole pattern\n" +

@@ -709,7 +709,12 @@ public sealed class TrackerGridControl : Control
         int xInChannel = x - channel * ChannelColWidth;
         if (xInChannel < OrderColWidth)
         {
-            NavigateToOrderTrackClick(channel, Math.Max(0, row));
+            // A right-click asks what to do with the channel's order there, and leaves the cursor
+            // and the view where they are; a left-click goes to that order entry.
+            if (e.Button == MouseButtons.Right)
+                ShowOrderTrackMenu(channel, Math.Max(0, row), e.Location);
+            else
+                NavigateToOrderTrackClick(channel, Math.Max(0, row));
             return;
         }
 
@@ -795,17 +800,67 @@ public sealed class TrackerGridControl : Control
         menu.Items.Add(plays);
 
         menu.Items.Add(new ToolStripSeparator());
-        string channel = $"CH{_cursorChannel + 1}";
-        menu.Items.Add(new ToolStripMenuItem(
-            shown is { } here ? $"Restart {channel} here (RST{here.OrderIndex + 1:D2})" : $"Restart {channel} here", null,
-            (_, _) => SetRestartAtCursor())
-        {
-            Checked = shown is { } r && order.RestartPosition == r.OrderIndex + 1,
-            Enabled = shown is not null,
-        });
+        menu.Items.Add(EndChannelItem(_cursorChannel, _cursorRow));
+        menu.Items.Add(RestartItem(_cursorChannel, _cursorRow));
 
         DarkTheme.Apply(menu);
         menu.Show(this, at);
+    }
+
+    /// <summary>Right-click on a channel's order column: end the channel on that row, or restart it
+    /// from that row's entry - without moving the cursor, so the view stays where it is.</summary>
+    private void ShowOrderTrackMenu(int channel, int row, Point at)
+    {
+        if (_song is null)
+            return;
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(EndChannelItem(channel, row));
+        menu.Items.Add(RestartItem(channel, row));
+        DarkTheme.Apply(menu);
+        menu.Show(this, at);
+    }
+
+    /// <summary>"End CHn here": the channel's last pattern ends after the row, so its order runs out
+    /// there and RST shows on it. Only in the order's last entry - before that, the entries after it
+    /// still play.</summary>
+    private ToolStripMenuItem EndChannelItem(int channel, int row)
+    {
+        var shown = ResolveDisplayRow(channel, row);
+        bool lastEntry = shown is { } here && LastPatternEntry(channel) == here.OrderIndex;
+        bool cuttable = TruncationAt(channel, row) is { } cut && cut.KeepThrough < cut.Pattern.Rows.Count - 1;
+        return new ToolStripMenuItem($"End CH{channel + 1} here (RST)", null, (_, _) => TruncatePatternAt(channel, row))
+        {
+            Checked = IsOrderEndRow(channel, shown),
+            Enabled = _editMode && lastEntry && cuttable,
+            ShortcutKeyDisplayString = "Shift+End",
+        };
+    }
+
+    private ToolStripMenuItem RestartItem(int channel, int row)
+    {
+        var shown = ResolveDisplayRow(channel, row);
+        string name = $"CH{channel + 1}";
+        return new ToolStripMenuItem(
+            shown is { } here ? $"Restart {name} here (RST{here.OrderIndex + 1:D2})" : $"Restart {name} here", null,
+            (_, _) => SetRestartAt(channel, row))
+        {
+            Checked = shown is { } r && _song!.ChannelOrders[channel].RestartPosition == r.OrderIndex + 1,
+            Enabled = shown is not null,
+        };
+    }
+
+    /// <summary>The index of the channel's last order entry that plays a pattern, -1 for none.</summary>
+    private int LastPatternEntry(int channel)
+    {
+        var tokens = _song!.ChannelOrders[channel].Tokens;
+        for (int i = tokens.Count - 1; i >= 0; i--)
+        {
+            if (tokens[i] is PatternRefToken)
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>Sets how many times the loop the cursor's row is in plays: null is forever. Any
@@ -840,16 +895,15 @@ public sealed class TrackerGridControl : Control
         return null;
     }
 
-    /// <summary>When the cursor channel's song-order runs out, it starts again from the entry the
-    /// cursor's row is in.</summary>
-    private void SetRestartAtCursor()
+    /// <summary>When the channel's song-order runs out, it starts again from the entry the row is in.</summary>
+    private void SetRestartAt(int channel, int row)
     {
-        if (ResolveDisplayRow(_cursorChannel, _cursorRow) is not { } here)
+        if (ResolveDisplayRow(channel, row) is not { } here)
         {
             return;
         }
 
-        _song!.ChannelOrders[_cursorChannel].RestartPosition = here.OrderIndex + 1;
+        _song!.ChannelOrders[channel].RestartPosition = here.OrderIndex + 1;
         Edited?.Invoke();
         Invalidate();
     }
@@ -2170,23 +2224,42 @@ public sealed class TrackerGridControl : Control
     /// dropped. A no-op when the cursor is already at or past that pattern's last row.</summary>
     private void TruncatePatternAtCursor()
     {
-        if (RefuseOnLinkedPass())
-            return;
-
-        var target = ResolveEditTarget(_cursorChannel, _cursorRow, allowExtend: false);
-        if (target is null)
+        if (TruncationAt(_cursorChannel, _cursorRow) is null)
         {
+            RefuseOnLinkedPass();
             return;
         }
-        var (pattern, localRow) = target.Value;
 
-        if (localRow >= pattern.Rows.Count - 1)
-        {
+        TruncatePatternAt(_cursorChannel, _cursorRow);
+    }
+
+    private void TruncatePatternAt(int channel, int row)
+    {
+        if (TruncationAt(channel, row) is not { } cut || cut.KeepThrough >= cut.Pattern.Rows.Count - 1)
             return;
-        }
-        pattern.Rows.RemoveRange(localRow + 1, pattern.Rows.Count - localRow - 1);
+
+        cut.Pattern.Rows.RemoveRange(cut.KeepThrough + 1, cut.Pattern.Rows.Count - cut.KeepThrough - 1);
         Edited?.Invoke();
         Invalidate();
+    }
+
+    /// <summary>
+    /// Which pattern ending the channel after a row cuts, and the last of its rows that stays; null
+    /// when it cannot end there. A loop's later pass is its first pass again, so only its very end -
+    /// the loop's last row on its last pass - can end the pattern: the rows after the loop go, and
+    /// the loop stays whole.
+    /// </summary>
+    private (Pattern Pattern, int KeepThrough)? TruncationAt(int channel, int row)
+    {
+        if (ResolveDisplayRow(channel, row) is not { } at)
+            return null;
+
+        if (DisplayRowAt(at.Pattern, at.Nth) is not { Linked: true } pass)
+            return (at.Pattern, at.LocalRow);
+
+        bool loopsEnd = pass.Pass == pass.Passes && at.LocalRow + 1 < at.Pattern.Rows.Count
+                        && at.Pattern.Rows[at.LocalRow + 1] is LoopEndRow;
+        return loopsEnd ? (at.Pattern, at.LocalRow + 1) : null;
     }
 
     private void InsertHoldAtCursor()
