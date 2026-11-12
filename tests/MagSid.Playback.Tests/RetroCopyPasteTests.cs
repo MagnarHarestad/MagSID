@@ -57,9 +57,46 @@ public class RetroCopyPasteTests
     private static void Call(TrackerGridControl grid, string handler, EventArgs args) =>
         typeof(TrackerGridControl).GetMethod(handler, Hidden, [args.GetType()])!.Invoke(grid, [args]);
 
-    private static (TrackerGridControl Grid, Song Song) Grid()
+    /// <summary>A loop played twice in channel 1, then room to paste. With loops unrolled the grid
+    /// shows rows 0 C-4, 1 LS D-4, 2 LE02 E-4, 3-4 the second pass, 5 F-4, then holds.</summary>
+    private const string Looped = """
+        var v_Song_Speed = 2
+
+        INSTRUMENTS:
+        01, $41, $00, $f7
+        END:
+
+        PAT01:
+        "C-4", 01
+        LS
+        "D-4", 01
+        "E-4", 01
+        LE02
+        "F-4", 01
+        "...", 00
+        "...", 00
+        "...", 00
+        "...", 00
+        "...", 00
+        "...", 00
+        END:
+
+        ORDER_CH1:
+        1
+        END:
+
+        ORDER_CH2:
+        1
+        END:
+
+        ORDER_CH3:
+        1
+        END:
+        """;
+
+    private static (TrackerGridControl Grid, Song Song) Grid(string text = Text)
     {
-        var song = PatternsFileReader.Parse(Text);
+        var song = PatternsFileReader.Parse(text);
         var grid = new TrackerGridControl { Size = new System.Drawing.Size(900, 600) };
         grid.SetSong(song);
         return (grid, song);
@@ -180,5 +217,57 @@ public class RetroCopyPasteTests
 
         Assert.Equal(new NoteRow(NoteName.Parse("F-4"), 2), song.Patterns[0].Rows[3]);
         Assert.Single(PatternClipboard.SelectedRows);
+    }
+
+    [Fact]
+    public void A_loop_is_copied_and_pasted_with_its_markers()
+    {
+        var (grid, song) = Grid(Looped);
+
+        Drag(grid, 0, 1, 2);
+        Key(grid, Keys.Control | Keys.C);
+        Assert.Equal(
+            [new LoopStartRow(), new NoteRow(NoteName.Parse("D-4"), 1), new NoteRow(NoteName.Parse("E-4"), 1), new LoopEndRow(2)],
+            PatternClipboard.SelectedRows);
+
+        // Row 8 of the grid is the pattern's row 8, a hold.
+        Click(grid, 0, 8);
+        Key(grid, Keys.Control | Keys.V);
+
+        var rows = song.Patterns[0].Rows;
+        Assert.Equal(new LoopStartRow(), rows[8]);
+        Assert.Equal(new NoteRow(NoteName.Parse("D-4"), 1), rows[9]);
+        Assert.Equal(new NoteRow(NoteName.Parse("E-4"), 1), rows[10]);
+        Assert.Equal(new LoopEndRow(2), rows[11]);
+        Assert.Equal(14, rows.Count);
+    }
+
+    [Fact]
+    public void A_marker_without_the_rest_of_its_loop_is_left_behind()
+    {
+        var (grid, _) = Grid(Looped);
+
+        Click(grid, 0, 2);          // E-4 and the LE after it, but not the LS before D-4
+        Key(grid, Keys.Control | Keys.C);
+
+        Assert.Equal([new NoteRow(NoteName.Parse("E-4"), 1)], PatternClipboard.SelectedRows);
+    }
+
+    [Fact]
+    public void A_paste_over_a_loop_takes_its_markers_away()
+    {
+        var (grid, song) = Grid(Looped);
+        Drag(grid, 0, 5, 7);        // F-4 and two holds
+        Key(grid, Keys.Control | Keys.C);
+
+        Click(grid, 0, 1);          // over D-4 (with LS before it), E-4 and the LE after it
+        Key(grid, Keys.Control | Keys.V);
+
+        var rows = song.Patterns[0].Rows;
+        Assert.Equal(new LoopStartRow(), rows[1]);      // before the cursor's row: not written over
+        Assert.Equal(new NoteRow(NoteName.Parse("F-4"), 1), rows[2]);
+        Assert.Equal(new HoldRow(), rows[3]);
+        Assert.Equal(new HoldRow(), rows[4]);
+        Assert.DoesNotContain(rows, row => row is LoopEndRow);
     }
 }

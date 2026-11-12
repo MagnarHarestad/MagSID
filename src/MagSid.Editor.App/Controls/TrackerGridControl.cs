@@ -933,8 +933,13 @@ public sealed class TrackerGridControl : Control
     private bool IsSelected(int channel, int row) =>
         _selection is { } s && s.Channel == channel && row >= Math.Min(s.From, s.To) && row <= Math.Max(s.From, s.To);
 
-    /// <summary>Ctrl+C: the selected rows, top to bottom, as the grid shows them - a loop's later
-    /// pass copies as the rows it plays. Without a selection, the cursor's row.</summary>
+    /// <summary>
+    /// Ctrl+C: the pattern rows under the selection, top to bottom - without one, the cursor's row.
+    /// Taken from the patterns themselves, not row by row off the grid, so the loop markers come
+    /// along: an LS shown on the first row, an LE shown on the last, and any in between. A loop's
+    /// later pass is the same rows again. Only whole loops are kept - an LE without its LS, or an
+    /// LS without an LE, would change a loop wherever it was pasted.
+    /// </summary>
     public void CopySelection()
     {
         var (channel, first, last) = _selection is { } s
@@ -942,39 +947,140 @@ public sealed class TrackerGridControl : Control
             : (_cursorChannel, _cursorRow, _cursorRow);
 
         var rows = new List<PatternRow>();
-        for (int row = first; row <= last; row++)
+        int row = first;
+        while (row <= last && ResolveDisplayRow(channel, row) is { } at)
         {
-            if (ResolveEditTarget(channel, row, allowExtend: false) is not { } target)
-                break;
-            rows.Add(target.Pattern.Rows[target.LocalRow]);
+            // The rows of this order entry that the selection covers, on whichever pass.
+            int low = at.LocalRow, high = at.LocalRow;
+            for (row++; row <= last; row++)
+            {
+                if (ResolveDisplayRow(channel, row) is not { } next
+                    || next.OrderIndex != at.OrderIndex || !ReferenceEquals(next.Pattern, at.Pattern))
+                {
+                    break;
+                }
+
+                low = Math.Min(low, next.LocalRow);
+                high = Math.Max(high, next.LocalRow);
+            }
+
+            var pattern = at.Pattern.Rows;
+            while (low > 0 && pattern[low - 1] is LoopStartRow)
+                low--;
+            while (high + 1 < pattern.Count && pattern[high + 1] is LoopEndRow)
+                high++;
+            rows.AddRange(pattern.Skip(low).Take(high - low + 1));
         }
 
         if (rows.Count > 0)
-            PatternClipboard.CopySelectedRows(rows);
+            PatternClipboard.CopySelectedRows(WholeLoopsOnly(rows));
     }
 
-    /// <summary>Ctrl+V: writes the copied rows from the cursor's row down in the cursor's channel,
-    /// one grid row each and across patterns as they come, growing the channel's last pattern
-    /// when they run past its end. The pasted rows are selected afterwards.</summary>
+    /// <summary>The rows without an LS that no LE follows, or an LE that no LS comes before - an
+    /// LE after a finite one may use its LS again.</summary>
+    private static List<PatternRow> WholeLoopsOnly(List<PatternRow> rows)
+    {
+        var keep = new bool[rows.Count];
+        bool endAhead = false;
+        for (int i = rows.Count - 1; i >= 0; i--)
+        {
+            keep[i] = rows[i] is not LoopStartRow || endAhead;
+            if (rows[i] is LoopEndRow)
+                endAhead = true;
+            else if (rows[i] is LoopStartRow)
+                endAhead = false;
+        }
+
+        bool started = false;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (rows[i] is LoopStartRow && keep[i])
+                started = true;
+            else if (rows[i] is LoopEndRow)
+                keep[i] = started;
+        }
+
+        return [.. rows.Where((_, i) => keep[i])];
+    }
+
+    /// <summary>
+    /// Ctrl+V: writes the copied rows into the cursor's pattern from its row down, loop markers
+    /// and all; the markers of the rows written over go with them. Rows without a loop carry on
+    /// into the channel's next pattern when they run past the end of this one; a loop is kept in
+    /// one pattern, which grows to hold it, as the channel's last pattern does. The pasted rows are
+    /// selected afterwards.
+    /// </summary>
     public void PasteSelection()
     {
         var rows = PatternClipboard.SelectedRows;
-        if (rows.Count == 0 || _song is null)
+        if (rows.Count == 0 || _song is null || ResolveDisplayRow(_cursorChannel, _cursorRow) is not { } start)
             return;
 
-        for (int i = 0; i < rows.Count; i++)
-        {
-            if (ResolveEditTarget(_cursorChannel, _cursorRow + i, allowExtend: true) is not { } target)
-                return;
+        var tokens = _song.ChannelOrders[_cursorChannel].Tokens;
+        bool loops = rows.Any(r => r is LoopStartRow or LoopEndRow);
+        int entry = start.OrderIndex;
+        var pattern = start.Pattern.Rows;
+        int local = start.LocalRow;
+        var written = (Entry: entry, Local: local);
+        int notes = 0;
 
-            while (target.Pattern.Rows.Count <= target.LocalRow)
-                target.Pattern.Rows.Add(new HoldRow());
-            target.Pattern.Rows[target.LocalRow] = rows[i];
+        foreach (var row in rows)
+        {
+            if (row is LoopStartRow or LoopEndRow)
+            {
+                pattern.Insert(Math.Min(local, pattern.Count), row);
+                local = Math.Min(local, pattern.Count - 1) + 1;
+                continue;
+            }
+
+            if (local >= pattern.Count && !loops && NextPatternEntry(tokens, entry) is { } next)
+            {
+                entry = next.Index;
+                pattern = next.Pattern.Rows;
+                local = 0;
+            }
+
+            while (local < pattern.Count && pattern[local] is LoopStartRow or LoopEndRow)
+                pattern.RemoveAt(local);
+            while (pattern.Count <= local)
+                pattern.Add(new HoldRow());
+
+            pattern[local] = row;
+            written = (entry, local);
+            local++;
+            notes++;
         }
 
-        _selection = (_cursorChannel, _cursorRow, _cursorRow + rows.Count - 1);
+        _selection = (_cursorChannel, _cursorRow, LastRowShowing(written.Entry, written.Local) ?? _cursorRow + notes - 1);
         Edited?.Invoke();
         Invalidate();
+    }
+
+    /// <summary>The next order entry after <paramref name="after"/> that plays a pattern there is.</summary>
+    private (int Index, Pattern Pattern)? NextPatternEntry(List<OrderToken> tokens, int after)
+    {
+        for (int i = after + 1; i < tokens.Count; i++)
+        {
+            if (tokens[i] is PatternRefToken(var number) && PatternNumbered(number) is { } pattern)
+                return (i, pattern);
+        }
+
+        return null;
+    }
+
+    /// <summary>The grid row from the cursor down where an entry's pattern row first shows, if it
+    /// shows within reach.</summary>
+    private int? LastRowShowing(int entry, int localRow)
+    {
+        for (int row = _cursorRow; row < _cursorRow + 4096; row++)
+        {
+            if (ResolveDisplayRow(_cursorChannel, row) is not { } at)
+                return null;
+            if (at.OrderIndex == entry && at.LocalRow == localRow)
+                return row;
+        }
+
+        return null;
     }
 
     private static bool IsOverOrderTrack(int x)
