@@ -227,6 +227,9 @@ public sealed class TrackerGridControl : Control
     /// <summary>Where the left button went down, while it is held.</summary>
     private (int Channel, int Row)? _dragFrom;
 
+    /// <summary>Where the cursor goes if the left button comes up without a drag.</summary>
+    private (int Channel, CursorField Field, int Row)? _clickTo;
+
     /// <summary>One RowTriggered event, timestamped in audio samples rather than wall-clock -
     /// see <see cref="_playbackHistory"/>.</summary>
     private readonly record struct PlaybackAnchor(long SampleIndex, Pattern Pattern, int CenterRow, int Ticks);
@@ -711,23 +714,29 @@ public sealed class TrackerGridControl : Control
         }
 
         int xInField = xInChannel - OrderColWidth;
-        _cursorChannel = channel;
-        _cursorField = xInField switch
+        var field = xInField switch
         {
             < MarkerColWidth => CursorField.Marker,
             < MarkerColWidth + NoteColWidth => CursorField.Note,
             _ => CursorField.Instrument,
         };
-        _cursorRow = Math.Max(0, row);
-        Invalidate();
 
-        // A left-button drag from here selects rows of this channel; a plain click clears the
-        // selection.
+        // The left button moves the cursor only when it comes up without having dragged: the view
+        // is centred on the cursor, so moving it as a drag began made the rows jump under the
+        // pointer. A drag selects rows of this channel and leaves the cursor where it was.
         if (e.Button == MouseButtons.Left)
         {
             _selection = null;
-            _dragFrom = (channel, _cursorRow);
+            _dragFrom = (channel, Math.Max(0, row));
+            _clickTo = (channel, field, Math.Max(0, row));
+            Invalidate();
+            return;
         }
+
+        _cursorChannel = channel;
+        _cursorField = field;
+        _cursorRow = Math.Max(0, row);
+        Invalidate();
 
         if (e.Button == MouseButtons.Right && _cursorField == CursorField.Marker)
         {
@@ -899,7 +908,18 @@ public sealed class TrackerGridControl : Control
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
+
+        // A click, not a drag: now the cursor goes there.
+        if (_clickTo is { } to && _selection is null)
+        {
+            _cursorChannel = to.Channel;
+            _cursorField = to.Field;
+            _cursorRow = to.Row;
+            Invalidate();
+        }
+
         _dragFrom = null;
+        _clickTo = null;
     }
 
     /// <summary>Selects rows <paramref name="from"/> to <paramref name="to"/> of a channel, in the

@@ -111,6 +111,19 @@ public class RetroCopyPasteTests
     }
 
     [Fact]
+    public void A_drag_leaves_the_cursor_and_so_the_view_where_they_were_and_a_click_moves_it()
+    {
+        var (grid, _) = Grid();
+        int channel() => (int)typeof(TrackerGridControl).GetField("_cursorChannel", Hidden)!.GetValue(grid)!;
+
+        Drag(grid, 2, 5, 3);
+        Assert.Equal((0, 0), (channel(), grid.CursorRow));
+
+        Click(grid, 2, 5);
+        Assert.Equal((2, 5), (channel(), grid.CursorRow));
+    }
+
+    [Fact]
     public void Ctrl_C_copies_the_rows_as_the_grid_shows_them_across_patterns()
     {
         var (grid, song) = Grid();
