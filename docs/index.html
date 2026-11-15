@@ -15,18 +15,18 @@
 <main class="wrap">
   <section class="hero">
     <img src="logo.png" alt="MagSID logo">
-    <h1>MagSID Editor <span id="version">v1.79</span></h1>
-    <p class="released">Release date: <time id="released" datetime="2026-11-03">2026-11-03</time></p>
+    <h1>MagSID Editor <span id="version">v1.80</span></h1>
+    <p class="released">Release date: <time id="released" datetime="2026-11-16">2026-11-16</time></p>
     <p>A tracker for Commodore 64 music, for Windows, macOS and Linux. Write in a classic tracker grid or a DAW-style piano roll,
       hear it through reSID, and export a <code>.sid</code> that plays exactly the same on the real machine.</p>
     <div class="download">
-      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.79/MagSID-1.79-windows-x64.zip">Download for Windows</a>
+      <a class="button" href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.80/MagSID-1.80-windows-x64.zip">Download for Windows</a>
       <small>Free and open source · Windows 10/11, 64-bit · nothing else to install</small>
       <p class="also">Also for
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.79/MagSID-1.79-macos-arm64.zip">macOS · Apple Silicon</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.79/MagSID-1.79-macos-x64.zip">macOS · Intel</a>
-        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.79/MagSID-1.79-linux-x64.tar.gz">Linux · x64</a>
-        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.79">release notes</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.80/MagSID-1.80-macos-arm64.zip">macOS · Apple Silicon</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.80/MagSID-1.80-macos-x64.zip">macOS · Intel</a>
+        <a href="https://github.com/MagnarHarestad/MagSID/releases/download/v1.80/MagSID-1.80-linux-x64.tar.gz">Linux · x64</a>
+        <a class="plain" href="https://github.com/MagnarHarestad/MagSID/releases/tag/v1.80">release notes</a>
         <a class="plain" href="#mac">opening it on a Mac</a></p>
     </div>
   </section>
@@ -64,11 +64,14 @@
   <p class="lead">Code for an effect is only assembled when a song uses it.</p>
   <table class="sizes">
     <tr><th>Player build</th><th>Code size</th></tr>
-    <tr><td>No optional effects</td><td>418 bytes</td></tr>
-    <tr><td>With slides</td><td>467 bytes</td></tr>
-    <tr><td>With vibrato</td><td>500 bytes</td></tr>
-    <tr><td>With both</td><td>526 bytes</td></tr>
-    <tr><td>Soft hard restart, when used</td><td>+10 bytes</td></tr>
+    <tr><td>No optional effects</td><td>391 bytes</td></tr>
+    <tr><td>With slides</td><td>440 bytes</td></tr>
+    <tr><td>With vibrato</td><td>473 bytes</td></tr>
+    <tr><td>With both</td><td>499 bytes</td></tr>
+    <tr><td>Filter sweep, when used</td><td>+55 bytes</td></tr>
+    <tr><td>No hard restart, when used</td><td>+4 bytes</td></tr>
+    <tr><td>Soft hard restart, on every instrument</td><td>+2 bytes</td></tr>
+    <tr><td>Soft hard restart, on some instruments</td><td>+10 bytes</td></tr>
     <tr><td>Vibrato, when two or more instruments have none</td><td>+4 bytes</td></tr>
   </table>
 
@@ -261,7 +264,7 @@ document.querySelectorAll('.video .player').forEach(link => link.addEventListene
   link.replaceWith(frame);
 }));
 
-// The version and release date under the logo follow the latest release; v1.79 and its date stand
+// The version and release date under the logo follow the latest release; v1.80 and its date stand
 // until GitHub answers, or if it does not.
 fetch('https://api.github.com/repos/MagnarHarestad/MagSID/releases/latest')
   .then(response => response.ok ? response.json() : null)
