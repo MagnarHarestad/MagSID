@@ -149,10 +149,12 @@ public static class AboutDocument
         Mono("  A/D, S/R           Envelope, one hex byte each\n" +
              "  Pulse, Sweep       Pulse width and its change per frame\n" +
              "  Cont.              Keep the pulse sweep running across notes\n" +
-             "  No HR              Skip the hard restart - legato notes\n" +
+             "  No HR              Skip the hard restart - legato notes. Costs the player 4\n" +
+             "                     bytes, and only if used\n" +
              "  Soft HR            When this instrument's note is replaced, clear only the gate\n" +
              "                     and keep its waveform instead of cutting it with $08 - no\n" +
-             "                     click. Costs the player 10 bytes, and only if used\n" +
+             "                     click. Costs the player 2 bytes when every instrument has\n" +
+             "                     Soft HR or No HR, 10 when some have neither\n" +
              "  Vibrator, D/S,     Vibrato on/off, delay/speed byte, depth byte\n" +
              "  Depth\n" +
              "  Program grid       One frame per row: wavetable on the left, filter on the\n" +

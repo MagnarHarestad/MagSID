@@ -131,8 +131,10 @@ public sealed class VoiceEngine
     /// covered by this constant - see Instrument.NoHardRestart's own comment for how those opt
     /// out instead of needing a universally-safe constant that does not actually exist.
     /// </summary>
+    /// <param name="allSoft">Every hard restart in the song is soft (MagSid.Core.HardRestart.AllSoft):
+    /// the player then keeps the waveform with no test, so a voice's first note gets $00, not $08.</param>
     public void TriggerNote(int baseReg, NoteName note, int instrumentNumber, Instrument instrument,
-        Action<int, int> write)
+        Action<int, int> write, bool allSoft = false)
     {
         var (lo, hi) = NotePalTable.GetFreq(note);
         write(baseReg + 0, lo);
@@ -152,9 +154,11 @@ public sealed class VoiceEngine
 
             // See MagSid.Core.HardRestart: gate off with the waveform kept, or $08 - kept also
             // after an outgoing instrument with SOFTHR. Like the 6502 player, a last waveform of
-            // nothing falls back to $08, and the flag is read whether or not that note still sounds.
+            // nothing falls back to $08, and the flag is read whether or not that note still sounds -
+            // except in a song whose every hard restart is soft, where the player has neither.
             int kept = _lastControlValue & 0xFE;
-            bool soft = HardRestart.KeepsWaveform || (_instrument is { SoftHardRestart: true } && kept != 0);
+            bool soft = HardRestart.KeepsWaveform || allSoft
+                        || (_instrument is { SoftHardRestart: true } && kept != 0);
             write(baseReg + 4, soft ? kept : 0x08);
         }
 

@@ -587,9 +587,7 @@
  		sta show_d417
  		endif
 +		if def v_fltsweep
- 		inx
--		lda flt_data,x
--		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
++		inx
 +		lda flt_data-1,x                       ; sweep rate: 0 stops a sweep, any other starts one,
 +		beq .newsweep                          ; unless one is already running - that one goes on
 +		cpy #0                                 ; as it is, so a drum hitting again leaves it alone
@@ -601,8 +599,10 @@
 +.oldsweep:
  		inx
 -		lda flt_data,x
+-		sta filter_delta                       ; sweep rate, 0 to stop a running sweep
 +		endif
-+		inx
+ 		inx
+-		lda flt_data,x
 +		lda flt_data-1,x
  .filtercut:
  		sta $d416
@@ -738,7 +738,7 @@
  		; Masking rather than subtracting: the dispatch above already proved which range the
  		; byte is in, so the low bits are the value and a single AND isolates them - one byte
  		; less than sec/sbc, and it leaves no carry to think about.
-@@ -621,18 +537,124 @@
+@@ -621,18 +537,144 @@
  		iny
  		bne .nextcmd                           ; always - a pattern never reaches offset 0 here
  
@@ -809,15 +809,35 @@
 +		jsr Voice_SetFreq
 +
 +		; Hard restart unless NOHR: bit 5 of the pw_init byte of the instrument ALREADY sounding
-+		; here, which voice_prev_pw keeps. Zero AD, release 7, gate off + TEST. Release 7 and not 0
++		; here, which voice_prev_pw keeps. Zero AD, release 7, gate off. Release 7 and not 0
 +		; because the envelope rate counter is never reset by a write. NOHR skips all three.
++		if def v_nohr
 +		lda voice_prev_pw,x
 +		and #$20
 +		bne .skiphardreset
-+		sta $d405,x                            ; A is already $00 - the and just proved it
++		else
++		lda #0                                 ; no instrument has NOHR: no test
++		endif
++		sta $d405,x                            ; with NOHR, A is already $00 - the and proved it
 +		lda #$07
 +		sta $d406,x
++		; Gate off with the waveform kept after SOFTHR (bit 7), else $08: TEST on, waveform off.
++		; With every instrument SOFTHR or NOHR it is always kept - no test, and no $08 fallback.
++		if def v_allsofthr
++		lda voice_last_waveform,x
++		and #$fe
++		else
++		if def v_softhr
++		lda voice_prev_pw,x
++		bpl .hardcontrol
++		lda voice_last_waveform,x
++		and #$fe
++		bne .writecontrol                      ; a last waveform of nothing falls back to $08
++		endif
++.hardcontrol:
 +		lda #$08
++.writecontrol:
++		endif
 +		sta $d404,x
 +.skiphardreset:
 +
@@ -923,16 +943,29 @@
  local function ParseSingleNoteLine(line)
      line = line:gsub(" ", "")
      if line == "" then
-@@ -130,7 +165,7 @@
+@@ -130,8 +165,9 @@
  
      -- Optional comma-separated sections after SR (no section body contains a comma):
      -- WAVE $81 $41 control bytes/frame | ARP "C-1" .. [LOOP|ROOT|HOLD] absolute notes/frame |
 -    -- FLT ($mv $rr $cc [+n]) $xx | PW w +d [CONT] | VIB $ds $depth | SLIDE +n | NOHR
-+    -- FLT ($mv $rr $cc [+n [$ee]]) $xx | PW w +d [CONT] | VIB $ds $depth | SLIDE +n | NOHR
++    -- FLT ($mv $rr $cc [+n [$ee]]) $xx | PW w +d [CONT] | VIB $ds $depth | SLIDE +n | NOHR | SOFTHR
      local arp, flt, pw, wave, nohr, vib, slide = nil, nil, nil, nil, false, nil, nil
++    local softhr = false
  
      for seg in Trim(rest):gmatch("[^,]+") do
-@@ -232,10 +267,10 @@
+         seg = Trim(seg)
+@@ -140,6 +176,10 @@
+             assert(not nohr, "INSTRUMENTS: duplicate NOHR: " .. line)
+             nohr = true
+ 
++        elseif seg:upper() == "SOFTHR" then
++            assert(not softhr, "INSTRUMENTS: duplicate SOFTHR: " .. line)
++            softhr = true
++
+         else
+         local kw, body = seg:match("^(%a+)%s+(.+)$")
+         kw = kw and kw:upper()
+@@ -232,10 +272,10 @@
                              assert(false, "INSTRUMENTS: cannot parse FLT group token '" .. tok .. "': " .. line)
                          end
                      end
@@ -946,7 +979,30 @@
                      i = nxt
                  else
                      local v, nxt = body:match("^%$(%x+)()", i)
-@@ -501,7 +536,7 @@
+@@ -273,7 +313,7 @@
+     end
+ 
+     return tonumber(nr, 10), tonumber(wf, 16), tonumber(ad, 16), tonumber(sr, 16),
+-           arp, flt, pw, wave, nohr, vib, slide
++           arp, flt, pw, wave, nohr, vib, slide, softhr
+ end
+ 
+ ------------------------------------------------------------
+@@ -453,11 +493,11 @@
+             current_pattern_id = nil
+             current_order_ch = nil
+         elseif mode == "instruments" then
+-            local nr, wf, ad, sr, arp, flt, pw, wavetable, nohr, vib, slide = ParseInstrumentLine(t)
++            local nr, wf, ad, sr, arp, flt, pw, wavetable, nohr, vib, slide, softhr = ParseInstrumentLine(t)
+             assert(nr, "INSTRUMENTS: cannot parse line: " .. t)
+             instruments[nr] =
+                 { wave = wf, ad = ad, sr = sr, arp = arp, flt = flt, pw = pw, wavetable = wavetable,
+-                  nohr = nohr, vib = vib, slide = slide }
++                  nohr = nohr, vib = vib, slide = slide, softhr = softhr }
+         elseif mode == "pattern" then
+             patterns[current_pattern_id][#patterns[current_pattern_id] + 1] = t
+         elseif mode == "order" then
+@@ -501,7 +541,7 @@
              local row = ParseSingleNoteLine(raw)
              if row then
                  local note = NormalizeNote(row.note)
@@ -955,7 +1011,7 @@
                      GetNoteID(note)
                  end
              end
-@@ -509,6 +544,25 @@
+@@ -509,6 +549,25 @@
      end
  end
  
@@ -981,7 +1037,7 @@
  -- Arpeggio steps come out of the same dictionary as the patterns, which is the whole reason
  -- they are one byte each. Registered after the patterns so pattern encoding is unaffected by
  -- whether an instrument happens to arpeggiate.
-@@ -535,6 +589,8 @@
+@@ -535,6 +594,8 @@
  -- of Code\musicplayer.s). LS marks the loop anchor, LE emits $D2 + count + offset, $00 ends.
  
  local CMD_DUR, CMD_INST, CMD_OFF, CMD_WAIT, CMD_LOOP_END = 0x80, 0xC0, 0xD0, 0xD1, 0xD2
@@ -990,7 +1046,7 @@
  local MAX_DURATION, MAX_INSTRUMENT = 64, 16
  
  local ptr_rows = {}
-@@ -568,6 +624,9 @@
+@@ -568,6 +629,9 @@
      -- round or the second pass plays with the first pass's leftovers.
      local ls_target, ls_inst, ls_dur = 0, nil, nil
  
@@ -1000,7 +1056,7 @@
      local function Emit(b)
          stream[#stream + 1] = b
      end
-@@ -576,7 +635,7 @@
+@@ -576,7 +640,7 @@
          if inst ~= nil and inst ~= cur_inst then
              assert(inst >= 1 and inst <= MAX_INSTRUMENT,
                  "PAT" .. NN .. ": instrument " .. inst .. " is out of range (1.." .. MAX_INSTRUMENT .. ")")
@@ -1009,7 +1065,7 @@
              cur_inst = inst
          end
          if dur ~= nil and dur ~= cur_dur then
-@@ -599,6 +658,7 @@
+@@ -599,6 +663,7 @@
          if tu == "LS" then
              ls_target = #stream                -- byte offset of the next thing emitted
              ls_inst, ls_dur = cur_inst, cur_dur
@@ -1017,7 +1073,7 @@
          elseif IsLE(tu) then
              -- The byte after $D2 is the repeat count: 0 = bare LE, loops forever; N = finite,
              -- the marked section plays N times total before falling through.
-@@ -607,21 +667,29 @@
+@@ -607,21 +672,29 @@
                  "PAT" .. NN .. ": LE repeat count must be 0 (bare LE, loops forever) or 1..255: " .. raw)
  
              -- If the body changed instrument or duration, the jump back would re-enter with the loop's
@@ -1059,7 +1115,7 @@
  
              Emit(CMD_LOOP_END)
              Emit(repeat_count)
-@@ -672,9 +740,24 @@
+@@ -672,9 +745,24 @@
                      -- setting alone is exactly right and costs nothing.
                      SetState(nil, duration)
                      Emit(CMD_OFF)
@@ -1084,7 +1140,7 @@
                      SetState(row.inst, duration)
                      Emit(GetNoteID(note))
                  end
-@@ -695,7 +778,7 @@
+@@ -695,7 +783,7 @@
      ptr_rows[#ptr_rows + 1] = "tbl_rows_pat" .. NN
  end
  
@@ -1093,7 +1149,7 @@
  -- not per channel, so a pattern used by several channels points at the same rows.
  -- Krikkit syntax: label & 255 / label >> 8
  
-@@ -719,7 +802,7 @@
+@@ -719,7 +807,7 @@
      asm("")
  end
  
@@ -1102,7 +1158,7 @@
  
  -- Instrument tables (ad_table / sr_table / wt_start), indexed by instrument number - 1.
  -- wt_start points into wt_data, the shared pool of control-byte programs terminated by $00.
-@@ -811,6 +894,17 @@
+@@ -811,6 +899,17 @@
      -- plain cutoff step has to stay inside $01..$FE - the only value that costs is a cutoff
      -- high byte of exactly 0 or 255, either of which is a degenerate setting anyway.
      local flt_values, flt_pool, flt_offset = {}, { "$00" }, {}
@@ -1120,7 +1176,7 @@
      for id = 1, instrument_count do
          local flt = instruments[id].flt
          if not flt then
-@@ -831,7 +925,18 @@
+@@ -831,7 +930,18 @@
                      bytes[#bytes + 1] = 0xff
                      bytes[#bytes + 1] = mode
                      bytes[#bytes + 1] = res
@@ -1140,7 +1196,18 @@
                      bytes[#bytes + 1] = cut
                  end
              end
-@@ -868,27 +973,38 @@
+@@ -860,35 +970,47 @@
+         local width = pw and pw.width or 8
+         local add   = pw and pw.add   or 0
+         -- Bit 6 of the width byte is continuous: a new note leaves the channel's sweep running.
+-        -- Bit 5 is NOHR: skip the hard-restart AD/SR reset. Unrelated to pulse width, but this is
+-        -- where the free bits are.
++        -- Bit 5 is NOHR: skip the hard-restart AD/SR reset; bit 7 is SOFTHR: keep the waveform.
++        -- Unrelated to pulse width, but this is where the free bits are.
+         if pw and pw.continuous then width = width + 0x40 end
+         if instruments[id].nohr then width = width + 0x20 end
++        if instruments[id].softhr then width = width + 0x80 end
+         pw_init_values[id] = string.format("$%02x", width)
          pw_add_values[id]  = string.format("$%02x", add % 256)
      end
  
@@ -1193,7 +1260,7 @@
      end
      assert(any_vibrato == (v_vibrato_scan == true),
          "vibrato scan disagrees with the parsed INSTRUMENTS - v_songfile must be set before " ..
-@@ -898,20 +1014,6 @@
+@@ -898,20 +1020,6 @@
          EmitByteTable("vib_depth:", vib_depth_values)
      end
  
@@ -1214,7 +1281,7 @@
  end
  
  -- Song-order resolution per channel: a list of pattern numbers, optionally followed by
-@@ -1010,8 +1112,8 @@
+@@ -1010,8 +1118,8 @@
  asm("; --------------------------------------")
  asm("")
  
@@ -1225,25 +1292,35 @@
  
  -- Note dictionary id -> chromatic index, for the musicshower's note column. The dictionary
  -- is first-occurrence order, so an id says nothing about pitch on its own. v_musicshower is
-@@ -1053,6 +1155,11 @@
+@@ -1053,6 +1161,12 @@
      local f = io.open("SongData/" .. (v_songfile or "Patterns.s"), "r")
      v_vibrato_scan = false
      v_slide_scan = false
 +    v_funk_scan = false
 +    v_speed_scan = false
 +    v_fltsweep_scan = false
++    local nohr_scan, softhr_scan, plainhr_scan = false, false, false
 +    local instruments_scan, vibrato_scan = 0, 0
 +    local funk = nil
      if f then
          local in_instruments = false
          for line in f:lines() do
-@@ -1063,19 +1170,51 @@
+@@ -1063,19 +1177,69 @@
              elseif t:upper() == "END:" then
                  in_instruments = false
              elseif in_instruments and t:match("^%d+%s*,") then
 -                if t:upper():match(",%s*VIB%s") then v_vibrato_scan = true end
 -                if t:upper():match(",%s*SLIDE%s") then v_slide_scan = true end
 +                instruments_scan = instruments_scan + 1
++                -- NOHR and SOFTHR: an instrument with neither gets the plain $08 hard restart.
++                local nohr, softhr = false, false
++                for seg in t:gmatch("[^,]+") do
++                    seg = seg:match("^%s*(.-)%s*$"):upper()
++                    if seg == "NOHR" then nohr = true elseif seg == "SOFTHR" then softhr = true end
++                end
++                nohr_scan = nohr_scan or nohr
++                softhr_scan = softhr_scan or softhr
++                plainhr_scan = plainhr_scan or not (nohr or softhr)
 +                if t:upper():match(",%s*VIB%s") then
 +                    v_vibrato_scan = true
 +                    vibrato_scan = vibrato_scan + 1
@@ -1282,6 +1359,15 @@
 +    end
 +    if v_fltsweep_scan then
 +        asm("var v_fltsweep = 1")
++    end
++    if nohr_scan then
++        asm("var v_nohr = 1")
++    end
++    -- Every hard restart soft: the waveform is always kept, with no test and no $08 to fall back on.
++    if softhr_scan and not plainhr_scan then
++        asm("var v_allsofthr = 1")
++    elseif softhr_scan then
++        asm("var v_softhr = 1")
 +    end
      if v_vibrato_scan or v_slide_scan then
          asm("var v_freqmod = 1")

@@ -77,6 +77,22 @@ public class SongImageTests
         Assert.Equal(SongSizeCalculator.Measure(song).TotalBytes, SongImageBuilder.Build(song).Length);
     }
 
+    /// <summary>No golden song has SOFTHR. Every instrument soft leaves out the SOFTHR test and the
+    /// $08, with and without NOHR beside it; mixed with a plain hard restart, the test stays.</summary>
+    [Theory]
+    [InlineData("softhr_all.s", "softhr_all", false, true)]
+    [InlineData("softhr_all_nohr.s", "softhr_all_nohr", true, true)]
+    [InlineData("softhr_mixed.s", "softhr_mixed", true, false)]
+    public void Whole_image_matches_for_the_hard_restart_fixtures(string songFile, string golden, bool nohr, bool allSoft)
+    {
+        AssertMatchesGolden(Path.Combine(FixtureDirectory, songFile), songFile, golden, 0x1000);
+
+        var song = LoadSong(Path.Combine(FixtureDirectory, songFile), songFile);
+        var features = SongImageBuilder.FeaturesOf(song);
+        Assert.Equal((nohr, allSoft), (features.NoHardRestart, features.AllSoftHardRestart));
+        Assert.Equal(SongSizeCalculator.Measure(song).TotalBytes, SongImageBuilder.Build(song).Length);
+    }
+
     /// <summary>Relocation on a whole real song rather than the toy program EmitterTests uses. This
     /// is what the export dialog's load-address field rests on.</summary>
     [Theory]

@@ -233,18 +233,26 @@ public static class PlayerProgram
         // sounding here, which voice_prev_pw keeps: zero AD, release 7, gate off (waveform kept, or
         // $08 - see MagSid.Core.HardRestart). Release 7 and not 0 because the envelope rate counter
         // is never reset by a write - a period below where it sits wraps it through 15 bits and the
-        // next attack stalls.
-        asm.Lda(MemX(zp.VoicePrevPw));
-        asm.And(Imm(0x20));
+        // next attack stalls. The NOHR test is only assembled when some instrument has it.
         var skipHardReset = asm.NewLabel(".skiphardreset");
-        asm.Bne(skipHardReset);
-        // A is already $00 - it is the "and #$20" result the bne just proved to be zero, so the
-        // usual "lda #$00" in front of this is dead.
+        if (features.NoHardRestart)
+        {
+            asm.Lda(MemX(zp.VoicePrevPw));
+            asm.And(Imm(0x20));
+            asm.Bne(skipHardReset);
+            // A is already $00 - the "and #$20" result the bne just proved to be zero.
+        }
+        else
+        {
+            asm.Lda(Imm(0x00));
+        }
+
         asm.Sta(MemX(SidAttackDecay));
         asm.Lda(Imm(0x07));
         asm.Sta(MemX(SidSustainRelease));
-        // See MagSid.Core.HardRestart: gate off with the waveform kept, or $08.
-        if (Core.HardRestart.KeepsWaveform)
+        // See MagSid.Core.HardRestart: gate off with the waveform kept, or $08. Kept with no test
+        // when every hard restart in the song is soft.
+        if (Core.HardRestart.KeepsWaveform || features.AllSoftHardRestart)
         {
             asm.Lda(MemX(zp.VoiceLastWaveform));
             asm.And(Imm(0xFE));

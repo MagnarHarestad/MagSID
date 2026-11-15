@@ -146,7 +146,17 @@ zero page, against the old 30 and 2. Lightforce's instrument 02 became GRG's Lig
 $3e)`; `filter_sweep.s` was rewritten for ends. Same procedure, with the old 36 first rebuilt byte for byte; old and new
 then wrote the same SID registers for 30000 frames on every song in `SongData` without a sweep.
 
-`player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR,
+All 38 but `lightforce.bin` and its twin were reassembled on **2026-11-16**, 4 bytes smaller, when the hard restart's NOHR
+test (`lda voice_prev_pw,x / and #$20 / bne`) became `lda #0` in a song without NOHR (`v_nohr`, from the include-time scan
+in `Tables.s`). The scratch player also learned SOFTHR, which until then only the emitter had: bit 7 of `pw_init`, the
+10-byte test in front of `lda #$08`, assembled with `v_softhr`. When every instrument has SOFTHR or NOHR (`v_allsofthr`) the
+test and the `$08` both go for `lda voice_last_waveform,x / and #$fe`, so a voice's first note writes `$00` where it wrote
+`$08`. `softhr_all.bin`, `softhr_all_nohr.bin` and `softhr_mixed.bin` were added for the three ways in. `GateOff\` is now
+made by defining `v_allsofthr` rather than editing `lda #$08`, the same code. Same procedure, with the old 38 first rebuilt
+byte for byte. Old and new then wrote the same SID registers for 30000 frames on every song in `SongData` and the fixtures,
+but in the songs with every instrument soft, where each voice's first hard restart wrote `$00` for `$08`, and nothing else.
+
+`player.patch` beside this file is every change the scratch player carries - pattern slides, SOFTHR, NOHR's gating,
 the release, funk speed, Fxy rows, the loop restore, the sweep's ends and the smaller slide and vibrato - against commit `6221867`'s `Code/musicplayer.s` and `Startup/Tables.s` (apply with
 `patch -p0 --binary`; the sources are CRLF). Rebuilding any golden means applying it first.
 

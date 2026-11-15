@@ -677,7 +677,8 @@ public sealed class SongSequencer
                 if (InstrumentFor(noteRow.InstrumentNumber) is { } instrument)
                 {
                     state.Voice.TriggerNote(
-                        RegisterBase(ch), noteRow.Note, noteRow.InstrumentNumber, instrument, _write);
+                        RegisterBase(ch), noteRow.Note, noteRow.InstrumentNumber, instrument, _write,
+                        MagSid.Core.HardRestart.AllSoft(_song.Instruments));
 
                     if (instrument.Filter.Count > 0)
                     {

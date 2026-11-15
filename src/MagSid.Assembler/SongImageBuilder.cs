@@ -20,7 +20,9 @@ public static class SongImageBuilder
         SoftHardRestart: song.Instruments.Any(i => i.SoftHardRestart),
         Funk: song.HasFunk,
         SpeedRows: Core.SongSizeCalculator.UsesSpeedRows(song),
-        FilterSweep: Core.SongSizeCalculator.UsesFilterSweep(song));
+        FilterSweep: Core.SongSizeCalculator.UsesFilterSweep(song),
+        NoHardRestart: Core.HardRestart.AnySkipped(song.Instruments),
+        AllSoftHardRestart: Core.HardRestart.AllSoft(song.Instruments));
 
     /// <summary>Emits at <paramref name="loadAddress"/>. Nothing is position-fixed - the player has
     /// no alignment requirements and no baked-in addresses - so this is the whole of relocation. The

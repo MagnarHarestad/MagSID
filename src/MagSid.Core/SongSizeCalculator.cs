@@ -46,17 +46,25 @@ public static class SongSizeCalculator
     // is no SID offset to load and Y is free for the instrument; voice_note went, and Voice_Tick
     // falls into Voice_PlayCurrent.
     // 2026-11-12: 23 less in each - the filter sweep, and a setup's rate, only in a song with a sweep.
-    private static readonly int PlayerBare = 395 + HardRestartBytes;
-    private static readonly int PlayerVibrato = 477 + HardRestartBytes;
-    private static readonly int PlayerSlide = 444 + HardRestartBytes;
-    private static readonly int PlayerVibratoAndSlide = 503 + HardRestartBytes;
+    // 2026-11-16: 4 less in each - the NOHR test, only in a song with NOHR.
+    private static readonly int PlayerBare = 391 + HardRestartBytes;
+    private static readonly int PlayerVibrato = 473 + HardRestartBytes;
+    private static readonly int PlayerSlide = 440 + HardRestartBytes;
+    private static readonly int PlayerVibratoAndSlide = 499 + HardRestartBytes;
 
     /// <summary>Keeping the waveform through the hard restart loads and masks it rather than
     /// loading $08 - two bytes. The four figures above are the $08 player's.</summary>
     private static int HardRestartBytes => HardRestart.KeepsWaveform ? 2 : 0;
 
+    /// <summary>The NOHR test (lda/and/bne), less the lda #$00 it makes unnecessary.</summary>
+    private const int NoHardRestartBytes = 4;
+
+    /// <summary>Every hard restart soft: the waveform loaded and masked in place of lda #$08.</summary>
+    private const int AllSoftHardRestartBytes = 2;
+
     /// <summary>The SOFTHR test (lda/bpl/lda/and/bne), assembled only when an instrument has the
-    /// flag and the switch has not already made every hard restart soft.</summary>
+    /// flag, some other instrument has a plain hard restart, and the switch has not already made
+    /// every hard restart soft.</summary>
     private const int SoftHardRestartBytes = 10;
 
     /// <summary>Funk speed's reload (lda/eor/sta/eor/sta) in place of move8's lda/sta.</summary>
@@ -129,7 +137,12 @@ public static class SongSizeCalculator
             (true, true) => PlayerVibratoAndSlide,
         };
 
-        if (!HardRestart.KeepsWaveform && song.Instruments.Any(i => i.SoftHardRestart))
+        if (HardRestart.AnySkipped(song.Instruments))
+            player += NoHardRestartBytes;
+
+        if (!HardRestart.KeepsWaveform && HardRestart.AllSoft(song.Instruments))
+            player += AllSoftHardRestartBytes;
+        else if (!HardRestart.KeepsWaveform && song.Instruments.Any(i => i.SoftHardRestart))
             player += SoftHardRestartBytes;
 
         if (UsesSpeedRows(song))

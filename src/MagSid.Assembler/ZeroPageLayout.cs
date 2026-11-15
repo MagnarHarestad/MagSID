@@ -190,8 +190,12 @@ public sealed class ZeroPageLayout
 /// rather than constants in the reload.</param>
 /// <param name="FilterSweep">A filter setup has a sweep rate, so the player has the sweep, and every
 /// setup record a rate and an end.</param>
+/// <param name="NoHardRestart">Some instrument has NOHR, so the hard restart tests for it (v_nohr).</param>
+/// <param name="AllSoftHardRestart">Every hard restart keeps the waveform - see
+/// MagSid.Core.HardRestart.AllSoft - so there is no SOFTHR test and no $08 (v_allsofthr).</param>
 public sealed record PlayerFeatures(
-    bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false, bool FilterSweep = false)
+    bool Vibrato, bool Slide, bool SoftHardRestart = false, bool Funk = false, bool SpeedRows = false, bool FilterSweep = false,
+    bool NoHardRestart = false, bool AllSoftHardRestart = false)
 {
     public static readonly PlayerFeatures None = new(false, false);
 

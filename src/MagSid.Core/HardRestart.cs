@@ -20,4 +20,37 @@ namespace MagSid.Core;
 public static class HardRestart
 {
     public static readonly bool KeepsWaveform = false;
+
+    /// <summary>Some instrument has NOHR, so the player tests for it before the hard restart; in a
+    /// song without one the test is left out, 4 bytes.</summary>
+    public static bool AnySkipped(IReadOnlyList<Model.Instrument> instruments)
+    {
+        for (int i = 0; i < instruments.Count; i++)
+        {
+            if (instruments[i].NoHardRestart)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Every hard restart in the song keeps the waveform: some instrument has SOFTHR, and each of
+    /// the others has it too or NOHR, which has no hard restart. The player then keeps the waveform
+    /// as <see cref="KeepsWaveform"/> does, with no test of the flag and no $08 to fall back on - so
+    /// a voice's first note, with nothing played before it, writes $00 where it wrote $08. 8 bytes.
+    /// </summary>
+    public static bool AllSoft(IReadOnlyList<Model.Instrument> instruments)
+    {
+        bool soft = false;
+        for (int i = 0; i < instruments.Count; i++)
+        {
+            var instrument = instruments[i];
+            if (!instrument.SoftHardRestart && !instrument.NoHardRestart)
+                return false;
+            soft |= instrument.SoftHardRestart;
+        }
+
+        return soft;
+    }
 }
