@@ -16,7 +16,7 @@ public class ReleaseVersionTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("xplatform-v0.6")]
+    [InlineData("nightly-v0.6")]
     [InlineData("latest")]
     public void Text_that_is_no_release_number_is_none(string? text) => Assert.Null(ReleaseVersion.Parse(text));
 
