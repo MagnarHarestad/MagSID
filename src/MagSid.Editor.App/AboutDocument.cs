@@ -123,6 +123,8 @@ public static class AboutDocument
              "  Drag with mouse    Select rows of one channel; Esc clears the selection\n" +
              "  Ctrl+C / Ctrl+V    Copy the selection / paste it from the cursor down (Cmd on a Mac)\n" +
              "  Shift+C / Shift+V  Copy / paste the whole pattern\n" +
+             "  Shift+Q / Shift+A  Transpose the selection (or the cursor's note) a semitone up / down\n" +
+             "  Shift+W / Shift+S  Transpose the selection (or the cursor's note) an octave up / down\n" +
              "  Click CH header    Mute / unmute the channel\n\n");
         Body("LE04 plays the looped section four times; a bare LE loops forever. On an LE row, " +
              "digits in the PAT field set the count.\n\n");

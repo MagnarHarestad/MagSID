@@ -1110,6 +1110,62 @@ public sealed class TrackerGridControl : Control
         Invalidate();
     }
 
+    private static int? TransposeStep(Keys key) => key switch
+    {
+        Keys.Q => 1,
+        Keys.A => -1,
+        Keys.W => 12,
+        Keys.S => -12,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Shift+Q/A/W/S: every note under the selection - without one, the cursor's - moved by
+    /// <paramref name="semitones"/>, keeping its instrument. A row shown more than once, on a
+    /// loop's later pass, moves once. When any note would leave C-0..B-7, none moves.
+    /// </summary>
+    public void TransposeSelection(int semitones)
+    {
+        if (_song is null)
+            return;
+
+        var (channel, first, last) = _selection is { } s
+            ? (s.Channel, Math.Min(s.From, s.To), Math.Max(s.From, s.To))
+            : (_cursorChannel, _cursorRow, _cursorRow);
+
+        var rows = new Dictionary<Pattern, SortedSet<int>>(ReferenceEqualityComparer.Instance);
+        for (int row = first; row <= last && ResolveDisplayRow(channel, row) is { } at; row++)
+        {
+            if (at.LocalRow < at.Pattern.Rows.Count && at.Pattern.Rows[at.LocalRow] is NoteRow)
+            {
+                if (!rows.TryGetValue(at.Pattern, out var indices))
+                    rows[at.Pattern] = indices = [];
+                indices.Add(at.LocalRow);
+            }
+        }
+
+        var notes = rows.SelectMany(p => p.Value.Select(i => (Rows: p.Key.Rows, Index: i))).ToList();
+        if (notes.Count == 0)
+            return;
+
+        int last96 = NoteName.AllNotes.Count - 1;
+        if (notes.Any(n => ((NoteRow)n.Rows[n.Index]).Note.TableIndex + semitones is var to && (to < 0 || to > last96)))
+        {
+            Notice?.Invoke(semitones > 0 ? "A note would go above B-7 - nothing transposed"
+                                         : "A note would go below C-0 - nothing transposed");
+            return;
+        }
+
+        foreach (var (patternRows, index) in notes)
+        {
+            var note = (NoteRow)patternRows[index];
+            patternRows[index] = note with { Note = NoteName.AllNotes[note.Note.TableIndex + semitones] };
+        }
+
+        Edited?.Invoke();
+        Invalidate();
+    }
+
     /// <summary>The next order entry after <paramref name="after"/> that plays a pattern there is.</summary>
     private (int Index, Pattern Pattern)? NextPatternEntry(List<OrderToken> tokens, int after)
     {
@@ -1244,6 +1300,14 @@ public sealed class TrackerGridControl : Control
         {
             PasteSelection();
             e.Handled = true;
+            return;
+        }
+
+        // GoatTracker's keys: Shift+Q / Shift+A a semitone up / down, Shift+W / Shift+S an octave.
+        if (e.Shift && !e.Control && !e.Alt && _editMode && TransposeStep(e.KeyCode) is { } step)
+        {
+            TransposeSelection(step);
+            e.Handled = e.SuppressKeyPress = true;
             return;
         }
 
